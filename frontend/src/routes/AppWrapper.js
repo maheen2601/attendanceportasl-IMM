@@ -9,7 +9,7 @@ import AdminDashboard from '../pages/AdminDashboard';
 import EmployeeList from '../pages/Employees';
 import AddEmployee from '../pages/AddEmployee';
 import Attendance from '../pages/Attendance';
-import Reports from '../pages/Leave';
+import Reports from '../pages/Reports';
 import Settings from '../pages/Settings';
 import EmployeeDashboard from '../pages/EmployeeDashboard';
 import Sidebar from '../components/Sidebar';
