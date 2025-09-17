@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+// src/components/admin/Sidebar.jsx
+import React, { useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   HomeIcon,
   UsersIcon,
   UserPlusIcon,
   ChartBarIcon,
+  ClockIcon,                 // 👈 new
   ArrowLeftOnRectangleIcon,
-} from '@heroicons/react/24/outline';
-import ConfirmDialog from "./ConfirmDialog"; // 👈 add
+} from "@heroicons/react/24/outline";
+import ConfirmDialog from "./ConfirmDialog";
 
 const Sidebar = () => {
   const location = useLocation();
@@ -15,19 +17,22 @@ const Sidebar = () => {
   const [showLogout, setShowLogout] = useState(false);
 
   const links = [
-    { to: '/admin-dashboard', label: 'Dashboard', icon: <HomeIcon className="w-5 h-5" /> },
-    { to: '/admin/employees', label: 'Employees', icon: <UsersIcon className="w-5 h-5" /> },
-    { to: '/admin/add-employee', label: 'Add Employee', icon: <UserPlusIcon className="w-5 h-5" /> },
-    { to: '/admin/leave-requests', label: 'Leave Requests', icon: <ChartBarIcon className="w-5 h-5" /> },
+    { to: "/admin-dashboard",      label: "Dashboard",       icon: <HomeIcon className="w-5 h-5" /> },
+    { to: "/admin/employees",      label: "Employees",       icon: <UsersIcon className="w-5 h-5" /> },
+    { to: "/admin/add-employee",   label: "Add Employee",    icon: <UserPlusIcon className="w-5 h-5" /> },
+    { to: "/admin/leave-requests", label: "Leave Requests",  icon: <ChartBarIcon className="w-5 h-5" /> },
+    // NEW: admin can approve/reject time change requests
+    { to: "/admin/time-corrections", label: "Time Change Requests", icon: <ClockIcon className="w-5 h-5" /> },
+    { to: '/admin/earlyoff',    label: 'Early-off Requests', icon: <ClockIcon className="w-5 h-5" /> },
+    
   ];
 
   const handleLogout = () => {
-    // clear creds and redirect
-    localStorage.removeItem('access');
-    localStorage.removeItem('refresh');
-    localStorage.removeItem('role');
-    localStorage.removeItem('username');
-    navigate('/login', { replace: true });
+    localStorage.removeItem("access");
+    localStorage.removeItem("refresh");
+    localStorage.removeItem("role");
+    localStorage.removeItem("username");
+    navigate("/login", { replace: true });
   };
 
   return (
@@ -38,15 +43,16 @@ const Sidebar = () => {
 
       <nav className="flex-1 px-4 py-6 space-y-2">
         {links.map(({ to, label, icon }) => {
-          const isActive = location.pathname === to;
+          const isActive = location.pathname.startsWith(to); // 👈 more robust active state
           return (
             <Link
               key={to}
               to={to}
-              className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-all 
-                ${isActive
-                  ? 'bg-gray-800 text-yellow-300'
-                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'}`}
+              className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-all ${
+                isActive
+                  ? "bg-gray-800 text-yellow-300"
+                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
+              }`}
             >
               {icon}
               <span>{label}</span>
@@ -55,7 +61,6 @@ const Sidebar = () => {
         })}
       </nav>
 
-      {/* Logout button */}
       <div className="px-4 pb-5">
         <button
           onClick={() => setShowLogout(true)}
@@ -66,7 +71,6 @@ const Sidebar = () => {
         </button>
       </div>
 
-      {/* Pretty confirm dialog */}
       <ConfirmDialog
         open={showLogout}
         title="Log out from AdminHub?"
