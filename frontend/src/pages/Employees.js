@@ -1,4 +1,4 @@
-// src/pages/Employees.js (or wherever this component lives)
+// src/pages/Employees.js
 import React, { useEffect, useState } from "react";
 import api from "../utils/axiosInstance";
 import { toast } from "react-toastify";
@@ -15,9 +15,20 @@ function EmployeeList() {
     setLoading(true);
     setErr("");
     try {
-      // ✅ relative to baseURL "http://localhost:8000/api/"
-      const { data } = await api.get("employees/all/");
-      setEmployees(Array.isArray(data) ? data : []);
+      const { data } = await api.get("admin/employees/");
+      const list = Array.isArray(data) ? data : [];
+
+      // Normalize shape: works with either {username,email,...} or {user:{username,email},...}
+      const normalized = list.map((e) => ({
+        id: e.id,
+        username: e.username ?? e.user?.username ?? "",
+        email: e.email ?? e.user?.email ?? "",
+        designation: e.designation ?? "",
+        leave_balance: e.leave_balance ?? 0,
+        join_date: e.join_date ?? "",
+      }));
+
+      setEmployees(normalized);
     } catch (error) {
       console.error("❌ Error fetching employees:", error?.response || error);
       setErr(
@@ -42,21 +53,24 @@ function EmployeeList() {
   const handleDelete = async () => {
     if (!employeeToDelete) return;
     try {
-      // ✅ relative path; backend route: /api/employees/delete/<pk>/
-      await api.delete(`employees/delete/${employeeToDelete}/`);
+      await api.delete(`admin/employees/${employeeToDelete}/`);
       setEmployees((prev) => prev.filter((e) => e.id !== employeeToDelete));
       toast.success("✅ Employee deleted successfully!");
     } catch (error) {
       console.error("❌ Error deleting employee:", error?.response || error);
-      toast.error("❌ Failed to delete employee.");
+      toast.error(
+        error?.response?.data?.detail || "❌ Failed to delete employee."
+      );
     } finally {
       setShowModal(false);
       setEmployeeToDelete(null);
     }
   };
 
+  const q = searchTerm.trim().toLowerCase();
   const filteredEmployees = employees.filter((emp) =>
-    (emp.username || "").toLowerCase().includes(searchTerm.toLowerCase())
+    (emp.username || "").toLowerCase().includes(q) ||
+    (emp.email || "").toLowerCase().includes(q)
   );
 
   return (
@@ -66,7 +80,7 @@ function EmployeeList() {
       <div className="flex items-center gap-4 mb-4">
         <input
           type="text"
-          placeholder="Search by username..."
+          placeholder="Search by username or email…"
           className="border px-4 py-2 rounded w-full max-w-sm"
           onChange={(e) => setSearchTerm(e.target.value)}
           value={searchTerm}
@@ -91,42 +105,55 @@ function EmployeeList() {
       )}
 
       {!loading && filteredEmployees.length > 0 && (
-        <table className="w-full border-collapse border shadow-sm bg-white rounded-lg overflow-hidden">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="border px-4 py-2 text-left">Username</th>
-              <th className="border px-4 py-2 text-left">Designation</th>
-              <th className="border px-4 py-2 text-left">Leave Balance</th>
-              <th className="border px-4 py-2 text-left">Join Date</th>
-              <th className="border px-4 py-2 text-left">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredEmployees.map((emp) => (
-              <tr key={emp.id} className="hover:bg-gray-50">
-                <td className="border px-4 py-2">{emp.username}</td>
-                <td className="border px-4 py-2">{emp.designation}</td>
-                <td className="border px-4 py-2">{emp.leave_balance}</td>
-                <td className="border px-4 py-2">{emp.join_date}</td>
-                <td className="border px-4 py-2">
-                  <button
-                    onClick={() => confirmDelete(emp.id)}
-                    className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+  <table className="w-full border-collapse border shadow-sm bg-white rounded-lg overflow-hidden">
+    <thead className="bg-gray-100">
+      <tr>
+        <th className="border px-4 py-2 text-left">Username</th>
+        <th className="border px-4 py-2 text-left">Email</th>
+        <th className="border px-4 py-2 text-left">Designation</th>
+        <th className="border px-4 py-2 text-left">Leave Balance</th>
+        <th className="border px-4 py-2 text-left">Join Date</th>
+        <th className="border px-4 py-2 text-left">Actions</th>
+      </tr>
+    </thead>
 
-      {/* Confirmation Modal */}
+    <tbody>
+      {filteredEmployees.map((emp) => (
+        <tr key={emp.id} className="hover:bg-gray-50">
+          <td className="border px-4 py-2">{emp.username || "-"}</td>
+          <td className="border px-4 py-2">
+            {emp.email ? (
+              <a href={`mailto:${emp.email}`} className="text-blue-600 hover:underline">
+                {emp.email}
+              </a>
+            ) : (
+              <span>-</span>
+            )}
+          </td>
+          <td className="border px-4 py-2">{emp.designation || "-"}</td>
+          <td className="border px-4 py-2">{emp.leave_balance ?? "-"}</td>
+          <td className="border px-4 py-2">{emp.join_date || "-"}</td>
+          <td className="border px-4 py-2">
+            <button
+              onClick={() => confirmDelete(emp.id)}
+              className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm"
+            >
+              Delete
+            </button>
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+)}
+
+
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 shadow-lg w-[90%] max-w-md">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Delete Employee</h3>
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">
+              Delete Employee
+            </h3>
             <p className="text-gray-600 mb-6">
               Are you sure you want to delete this employee? This action cannot be undone.
             </p>
