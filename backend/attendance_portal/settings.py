@@ -212,7 +212,7 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
-
+CORS_ALLOW_CREDENTIALS = True 
 # ---------- middleware (order matters) ----------
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
