@@ -21,12 +21,33 @@ from django.views.generic import TemplateView
 from django.views.generic.base import RedirectView
 
 
+from django.http import JsonResponse
+from django.conf import settings
+import os
+
+def diag(request):
+    base = settings.BASE_DIR
+    tdir = base / "attendance_portal" / "templates"
+    ipath = tdir / "index.html"
+    payload = {
+        "BASE_DIR": str(base),
+        "template_dir": str(tdir),
+        "index_path": str(ipath),
+        "template_dir_exists": tdir.exists(),
+        "index_exists": ipath.exists(),
+        "template_dir_listing": sorted(os.listdir(tdir)) if tdir.exists() else [],
+    }
+    return JsonResponse(payload)
+
+
+
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('attendance.urls')),
     # serve favicon from static (after we copy it there)
     path("favicon.ico", RedirectView.as_view(url="/static/favicon.ico", permanent=True)),
-
+    path("__diag/", diag),   
     # SPA entry: root and any unmatched path -> index.html
     re_path(r"^(?:.*)/?$", TemplateView.as_view(template_name="index.html")),
     
