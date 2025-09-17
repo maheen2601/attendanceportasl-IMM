@@ -17,10 +17,18 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from django.urls import include
+from django.views.generic import TemplateView
+from django.views.generic.base import RedirectView
+
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('attendance.urls')),
+    # serve favicon from static (after we copy it there)
+    path("favicon.ico", RedirectView.as_view(url="/static/favicon.ico", permanent=True)),
+
+    # SPA entry: root and any unmatched path -> index.html
+    re_path(r"^(?:.*)/?$", TemplateView.as_view(template_name="index.html")),
     
 ]
 
