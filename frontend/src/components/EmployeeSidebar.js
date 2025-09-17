@@ -6,16 +6,21 @@ import {
   CheckCircleIcon,
   CalendarDaysIcon,
   ClipboardDocumentListIcon,
+  ClockIcon,
+  Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
 } from "@heroicons/react/24/outline";
 import { toast } from "react-toastify";
 import ConfirmDialog from "./ConfirmDialog";
 
 const links = [
-  { to: "/employee-dashboard", label: "Overview",        icon: HomeIcon },
-  { to: "/employee/mark",      label: "Mark Attendance", icon: CheckCircleIcon },
-  { to: "/employee/attendance",label: "My Attendance",   icon: CalendarDaysIcon },
-  { to: "/employee/leaves",    label: "Leave Requests",  icon: ClipboardDocumentListIcon },
+  { to: "/employee-dashboard",   label: "Overview",        icon: HomeIcon },
+  { to: "/employee/mark",        label: "Mark Attendance", icon: CheckCircleIcon },
+  { to: "/employee/attendance",  label: "My Attendance",   icon: CalendarDaysIcon },
+  { to: "/employee/leaves",      label: "Leave Requests",  icon: ClipboardDocumentListIcon },
+  // NEW
+  { to: "/employee/early-off",   label: "Early-off",       icon: ClockIcon },
+  { to: "/policy",               label: "Policy",          icon: Cog6ToothIcon },
 ];
 
 export default function EmployeeSidebar() {
@@ -26,16 +31,11 @@ export default function EmployeeSidebar() {
   const isActive = (to) => pathname === to || pathname.startsWith(`${to}/`);
 
   const handleLogout = () => {
-    // clear creds
     localStorage.removeItem("access");
     localStorage.removeItem("refresh");
     localStorage.removeItem("role");
     localStorage.removeItem("username");
-
-    // toast popup
     toast.info("You’ve been logged out.");
-
-    // redirect
     navigate("/login", { replace: true });
   };
 
@@ -64,7 +64,7 @@ export default function EmployeeSidebar() {
         ))}
       </nav>
 
-      {/* Logout button */}
+      {/* Logout */}
       <div className="px-4 pb-5">
         <button
           onClick={() => setShowLogout(true)}
@@ -75,7 +75,6 @@ export default function EmployeeSidebar() {
         </button>
       </div>
 
-      {/* Pretty confirm dialog */}
       <ConfirmDialog
         open={showLogout}
         title="Log out?"
