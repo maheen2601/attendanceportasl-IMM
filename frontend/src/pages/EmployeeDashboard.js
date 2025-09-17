@@ -5,22 +5,45 @@ import {
   ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
-// ✅ add:
 import { toast } from "react-toastify";
+
+function fmtTime(t) {
+  if (!t) return "—";
+  try {
+    if (typeof t === "string" && /^\d{2}:\d{2}$/.test(t)) return t; // "HH:MM"
+    return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return String(t);
+  }
+}
+const todayYMD = () => new Date().toISOString().slice(0, 10);
 
 export default function EmployeeDashboard() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [acting, setActing] = useState(false);
+
   const [data, setData] = useState({
     profile: { username: "", designation: "", join_date: "", leave_balance: 0 },
-    today: { status: "None", mode: null },
-    month: { present: 0, absent: 0, leave: 0, wfh: 0, onsite: 0 },
+    today:   { status: "None", mode: null },
+    month:   { present: 0, absent: 0, leave: 0, wfh: 0, onsite: 0 },
     pending_leaves: 0,
     trend: [],
   });
 
-  const fetchMe = async () => {
-    setLoading(true); setErr("");
+  // We’ll fetch today’s concrete record to know if user already checked-in/out.
+  const [todayRec, setTodayRec] = useState({
+    date: todayYMD(),
+    check_in: null,
+    check_out: null,
+    mode: null,
+  });
+  const hasCheckedIn = Boolean(todayRec.check_in);
+  const hasCheckedOut = Boolean(todayRec.check_out);
+
+  const fetchDashboard = async () => {
+    setLoading(true);
+    setErr("");
     try {
       const res = await api.get("me/dashboard/");
       setData(res.data || {});
@@ -31,7 +54,32 @@ export default function EmployeeDashboard() {
     }
   };
 
-  useEffect(() => { fetchMe(); }, []);
+  // Load today's attendance (tries a specific endpoint, falls back to ?days=1).
+  const loadToday = async () => {
+  const res = await api.get("me/attendance/", { params: { days: 1 } });
+  const rows = Array.isArray(res.data) ? res.data : [];
+  const r = rows.find(x => x.date === todayYMD()) || rows[0] || null;
+  setTodayRec({
+    date: r?.date || todayYMD(),
+    check_in: r?.check_in || r?.checked_in_at || null,
+    check_out: r?.check_out || r?.checked_out_at || null,
+    mode: r?.mode || null,
+  });
+};
+  //     setTodayRec({
+  //       date: record?.date || todayYMD(),
+  //       check_in: record?.check_in || record?.checked_in_at || null,
+  //       check_out: record?.check_out || record?.checked_out_at || null,
+  //       mode: record?.mode || null,
+  //     });
+  //   } catch {
+  //     // keep quiet; UI will still work
+  //   }
+  // };
+
+  useEffect(() => {
+    Promise.all([fetchDashboard(), loadToday()]);
+  }, []);
 
   const lineData = useMemo(() => {
     const raw = Array.isArray(data.trend) ? data.trend : [];
@@ -46,17 +94,64 @@ export default function EmployeeDashboard() {
       .sort((a, b) => new Date(a._iso) - new Date(b._iso));
   }, [data.trend]);
 
-  // ✅ use toast instead of alert
-  const mark = async (mode) => {
+  // -------- Attendance actions with one-per-day UI guards --------
+  const notifyLate = async () => {
+    if (hasCheckedIn) {
+      toast.info("You’re already checked in — late pre-notice no longer applies.");
+      return;
+    }
+    if (acting) return;
+    setActing(true);
     try {
-      await api.post("me/attendance/mark/", { mode });
-      await fetchMe();
-      toast.success(`Marked present (${mode}).`);
+      await api.post("me/attendance/pre-notice/late/");
+      toast.success("Late pre-notice sent ✅");
     } catch (e) {
-      const msg = e?.response?.data?.detail || "Could not mark attendance.";
-      toast.error(msg);
+      toast.error(e?.response?.data?.detail || "Could not send pre-notice.");
+    } finally {
+      setActing(false);
     }
   };
+
+  const checkIn = async (mode) => {
+    if (hasCheckedIn) {
+      toast.info(`Already checked-in${todayRec.mode ? ` (${todayRec.mode})` : ""} at ${fmtTime(todayRec.check_in)}.`);
+      return;
+    }
+    if (acting) return;
+    setActing(true);
+    try {
+      await api.post("me/attendance/check-in/", { mode });
+      toast.success(`Checked-in (${mode}).`);
+      await Promise.all([fetchDashboard(), loadToday()]);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not check-in.");
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const checkOut = async () => {
+    if (!hasCheckedIn) {
+      toast.info("You need to check-in before you can check-out.");
+      return;
+    }
+    if (hasCheckedOut) {
+      toast.info(`Already checked-out at ${fmtTime(todayRec.check_out)}.`);
+      return;
+    }
+    if (acting) return;
+    setActing(true);
+    try {
+      await api.post("me/attendance/check-out/");
+      toast.success("Checked-out.");
+      await Promise.all([fetchDashboard(), loadToday()]);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not check-out.");
+    } finally {
+      setActing(false);
+    }
+  };
+  // ----------------------------------------------------------------
 
   const { profile, today, month, pending_leaves } = data;
 
@@ -84,23 +179,42 @@ export default function EmployeeDashboard() {
       <div className="bg-white rounded-xl border p-4 mb-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <div className="text-gray-700 font-semibold">Quick Mark Attendance</div>
+            <div className="text-gray-700 font-semibold">Quick Attendance</div>
             <div className="text-sm text-gray-500">
-              If you are working today, mark yourself present.
+              Use pre-notice if you’ll be late, then check-in/out (only once each).
+            </div>
+            <div className="mt-2 text-xs text-gray-600">
+              Today: <b>{todayRec.date}</b> · Check-in: <b>{fmtTime(todayRec.check_in)}</b>{todayRec.mode ? <> (<b>{todayRec.mode}</b>)</> : null} · Check-out: <b>{fmtTime(todayRec.check_out)}</b>
             </div>
           </div>
           <div className="flex gap-3">
             <button
-              onClick={() => mark("WFH")}
-              className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+              onClick={notifyLate}
+              disabled={hasCheckedIn || acting}
+              className="px-4 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
             >
-              Mark Present (WFH)
+              Pre-notify Late
             </button>
             <button
-              onClick={() => mark("Onsite")}
-              className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+              onClick={() => checkIn("WFH")}
+              disabled={hasCheckedIn || acting}
+              className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
             >
-              Mark Present (Onsite)
+              Check-in (WFH)
+            </button>
+            <button
+              onClick={() => checkIn("Onsite")}
+              disabled={hasCheckedIn || acting}
+              className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              Check-in (Onsite)
+            </button>
+            <button
+              onClick={checkOut}
+              disabled={!hasCheckedIn || hasCheckedOut || acting}
+              className="px-4 py-2 rounded-lg bg-gray-800 text-white hover:bg-gray-900 disabled:opacity-50"
+            >
+              Check-out
             </button>
           </div>
         </div>
