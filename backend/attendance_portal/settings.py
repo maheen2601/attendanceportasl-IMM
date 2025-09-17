@@ -215,6 +215,8 @@ SIMPLE_JWT = {
 
 # ---------- middleware (order matters) ----------
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
+    *MIDDLEWARE,
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",  # must be just after SecurityMiddleware
     "corsheaders.middleware.CorsMiddleware",
@@ -317,9 +319,18 @@ if not DEBUG:
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+DEBUG = False
 
+ALLOWED_HOSTS = ["attendance-backend.onrender.com"]
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://attendance-backend.onrender.com",
+    "https://attendance-frontend.onrender.com",
+]
 
+CORS_ALLOWED_ORIGINS = [
+    "https://attendance-frontend.onrender.com",
+]
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
