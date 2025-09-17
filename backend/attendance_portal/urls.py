@@ -19,6 +19,7 @@ from django.urls import path,re_path
 from django.urls import include
 from django.views.generic import TemplateView
 from django.views.generic.base import RedirectView
+from django.http import HttpResponse
 
 
 from django.http import JsonResponse
@@ -50,6 +51,7 @@ urlpatterns = [
     path("__diag/", diag),   
     # SPA entry: root and any unmatched path -> index.html
     re_path(r"^(?:.*)/?$", TemplateView.as_view(template_name="index.html")),
+    path("ping/", lambda r: HttpResponse("pong")),  # quick health check
     
 ]
 
