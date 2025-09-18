@@ -242,6 +242,7 @@ import { FaUser, FaLock, FaEye, FaEyeSlash } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import { Player } from "@lottiefiles/react-lottie-player";
 import { toast } from "react-toastify";
+import api from "../lib/api"; // new import
 import BubbleBackground from "../components/BubbleBackground";
 import "./Login.css";
 
