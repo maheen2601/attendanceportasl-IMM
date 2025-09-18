@@ -115,25 +115,24 @@ if RENDER_HOST:
     CSRF_TRUSTED_ORIGINS = list(CSRF_TRUSTED_ORIGNS)
 
 # ---------- database ----------
-DATABASE_URL = env("DATABASE_URL", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 if DATABASE_URL:
     DATABASES = {
-        "default": dj_database_url.config(
-            default=DATABASE_URL,
+        "default": dj_database_url.parse(
+            DATABASE_URL,
             conn_max_age=600,
-            # Render's URL includes ?sslmode=require already; ssl_require=True is also fine.
-            ssl_require=False,
+            ssl_require=False,   # Internal URL doesn't need SSL
         )
     }
 else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": env("DB_NAME", "attendance_db"),
-            "USER": env("DB_USER", "postgres"),
-            "PASSWORD": env("DB_PASSWORD", ""),
-            "HOST": env("DB_HOST", "localhost"),
-            "PORT": env("DB_PORT", "5432"),
+            "NAME": os.getenv("DB_NAME", "attendance_db"),
+            "USER": os.getenv("DB_USER", "postgres"),
+            "PASSWORD": os.getenv("DB_PASSWORD", ""),
+            "HOST": os.getenv("DB_HOST", "localhost"),
+            "PORT": os.getenv("DB_PORT", "5432"),
         }
     }
 
@@ -171,13 +170,7 @@ LOGGING = {
 }
 import os, dj_database_url
 
-DATABASES = {
-    "default": dj_database_url.parse(
-        os.environ["postgresql://attendance_portal_w18l_user:bfkxI3bXPuErE8vQkDOPQ7dgMBE3vz8h@dpg-d34m0kbipnbc73843uog-a/attendance_portal_w18l"],  # set to the *Internal* URL on your Render service
-        conn_max_age=600,
-        ssl_require=False,           # internal URL doesn't need SSL
-    )
-}
+
 
 
 if RENDER_HOST:
