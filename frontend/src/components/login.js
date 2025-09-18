@@ -8,7 +8,6 @@ import api, { API_BASE } from "../lib/api"; // shared axios instance
 import BubbleBackground from "../components/BubbleBackground";
 import "./Login.css";
 
-import api, { API_BASE } from "../lib/api";
 
 
 
