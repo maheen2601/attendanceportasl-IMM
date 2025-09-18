@@ -151,23 +151,22 @@
 
 # DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-
 """
 Django settings for attendance_portal project.
 Production-ready for Render & local dev (PostgreSQL).
 """
-
-# backend/attendance_portal/settings.py
 from pathlib import Path
 from datetime import timedelta
 import os
+import dj_database_url
 
 # ---------- env helpers ----------
 def env(key, default=None):
     return os.getenv(key, default)
 
 def env_list(key, default=""):
-    return [x.strip() for x in env(key, default).split(",") if x.strip()]
+    raw = env(key, default) or ""
+    return [x.strip() for x in raw.split(",") if x.strip()]
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -175,31 +174,31 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = env("SECRET_KEY", "dev-secret-change-me")
 DEBUG = env("DEBUG", "False").lower() == "true"
 
-# Render gives the external hostname (no scheme)
+# Render host (Render sets RENDER_EXTERNAL_HOSTNAME)
 RENDER_HOST = env("RENDER_EXTERNAL_HOSTNAME", "")
+
+# Allow explicit hosts via env; include local and *.onrender.com by default
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", ".onrender.com,localhost,127.0.0.1")
 if RENDER_HOST and RENDER_HOST not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(RENDER_HOST)
 
-# ---------- installed apps ----------
+# ---------- apps ----------
 INSTALLED_APPS = [
-    # serve static files correctly in dev
-    "whitenoise.runserver_nostatic",
-
+    "whitenoise.runserver_nostatic",  # correct dev static handling
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-
     "corsheaders",
     "rest_framework",
-
+    # If you plan to blacklist rotated refresh tokens, also add:
+    # "rest_framework_simplejwt.token_blacklist",
     "attendance",
 ]
 
-# ---------- rest / jwt ----------
+# ---------- auth / DRF ----------
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -212,13 +211,11 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
-CORS_ALLOW_CREDENTIALS = True 
+
 # ---------- middleware (order matters) ----------
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",
-    *MIDDLEWARE,
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",  # must be just after SecurityMiddleware
+    "whitenoise.middleware.WhiteNoiseMiddleware",  # must be right after SecurityMiddleware
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -228,12 +225,13 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 ROOT_URLCONF = "attendance_portal.urls"
 
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        # our build copies index.html here
         "DIRS": [BASE_DIR / "attendance_portal" / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
@@ -248,31 +246,35 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "attendance_portal.wsgi.application"
 
-# ---------- cors / csrf ----------
-# optional: set FRONTEND_URL=https://your-frontend.onrender.com
+# ---------- CORS / CSRF ----------
 FRONTEND_URL = (env("FRONTEND_URL", "") or "").rstrip("/")
-
 DEFAULT_CORS = ["http://localhost:3000", "http://127.0.0.1:3000"]
-CORS_ALLOWED_ORIGINS = DEFAULT_CORS + ([FRONTEND_URL] if FRONTEND_URL.startswith(("http://", "https://")) else [])
-CORS_ALLOW_CREDENTIALS = True
+
+cors_from_env = env_list("CORS_ALLOWED_ORIGINS", "")
+CORS_ALLOWED_ORIGINS = list(dict.fromkeys(
+    DEFAULT_CORS
+    + cors_from_env
+    + ([FRONTEND_URL] if FRONTEND_URL.startswith(("http://", "https://")) else [])
+))
+CORS_ALLOW_CREDENTIALS = True  # okay even if using JWT; required only if you send cookies
 
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", "")
-# add FRONTEND_URL if present
 if FRONTEND_URL.startswith(("http://", "https://")) and FRONTEND_URL not in CSRF_TRUSTED_ORIGINS:
     CSRF_TRUSTED_ORIGINS.append(FRONTEND_URL)
-# add Render external URL if you prefer (scheme required)
 if RENDER_HOST:
-    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_HOST}")
+    CSRF_TRUSTED_ORIGNS = set(CSRF_TRUSTED_ORIGINS)  # dedupe
+    CSRF_TRUSTED_ORIGNS.add(f"https://{RENDER_HOST}")
+    CSRF_TRUSTED_ORIGINS = list(CSRF_TRUSTED_ORIGNS)
 
 # ---------- database ----------
 DATABASE_URL = env("DATABASE_URL", "")
 if DATABASE_URL:
-    import dj_database_url
     DATABASES = {
-        "default": dj_database_url.parse(
-            DATABASE_URL,
+        "default": dj_database_url.config(
+            default=DATABASE_URL,
             conn_max_age=600,
-            ssl_require=env("DB_SSL_REQUIRE", "True").lower() == "true",
+            # Render's URL includes ?sslmode=require already; ssl_require=True is also fine.
+            ssl_require=False,
         )
     }
 else:
@@ -287,66 +289,35 @@ else:
         }
     }
 
-# ---------- auth validators ----------
-AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
-    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
-    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
-    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
-]
-
 # ---------- i18n / tz ----------
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = env("TIME_ZONE", "UTC")
 USE_I18N = True
 USE_TZ = True
 
-# ---------- static / whitenoise ----------
+# ---------- static / WhiteNoise ----------
 STATIC_URL = "/static/"
-# Where collectstatic puts versioned assets for WhiteNoise to serve
 STATIC_ROOT = BASE_DIR / "staticfiles"
-# Where we copy React build assets during build
-STATICFILES_DIRS = [BASE_DIR / "static"]
+# If you actually place additional assets under BASE_DIR / "static", uncomment:
+# STATICFILES_DIRS = [BASE_DIR / "static"]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 WHITENOISE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 
-# ---------- security for production ----------
+# ---------- production security ----------
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-DEBUG = False
-
-ALLOWED_HOSTS = ["attendance-backend.onrender.com"]
-
-CSRF_TRUSTED_ORIGINS = [
-    "https://attendance-backend.onrender.com",
-    "https://attendance-frontend.onrender.com",
-]
-
-CORS_ALLOWED_ORIGINS = [
-    "https://attendance-frontend.onrender.com",
-]
+# ---------- logging ----------
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {
-        "console": {"class": "logging.StreamHandler"},
-    },
-    "root": {
-        "handlers": ["console"],
-        "level": "INFO",
-    },
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": "INFO"},
     "loggers": {
-        "django.request": {
-            "handlers": ["console"],
-            "level": "ERROR",  # will log 500 tracebacks
-            "propagate": False,
-        },
+        "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},
     },
 }
-
