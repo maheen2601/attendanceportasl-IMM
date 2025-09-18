@@ -4,7 +4,7 @@ import { FaUser, FaLock, FaEye, FaEyeSlash } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import { Player } from "@lottiefiles/react-lottie-player";
 import { toast } from "react-toastify";
-import api, { API_BASE } from "../lib/api"; // use shared axios instance
+import api, { API_BASE } from "../lib/api"; // shared axios instance
 import BubbleBackground from "../components/BubbleBackground";
 import "./Login.css";
 
@@ -42,6 +42,7 @@ function Login({ onLogin }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
+
     setErrorMessage("");
     setLoading(true);
 
@@ -51,17 +52,17 @@ function Login({ onLogin }) {
     localStorage.removeItem("role");
 
     try {
-      // ✅ use the shared axios client; no hard-coded localhost
+      // ✅ call backend through shared client (no localhost anywhere)
       const res = await api.post("/api/login/", { username, password, role });
 
-      // Trust server’s role
+      // Trust server-provided role
       const serverRole = res.data?.role ?? (res.data?.is_staff ? "admin" : "employee");
+
       localStorage.setItem("access", res.data.access);
       localStorage.setItem("refresh", res.data.refresh);
       localStorage.setItem("role", serverRole);
 
       onLogin?.();
-
       navigate(serverRole === "admin" ? "/admin-dashboard" : "/employee-dashboard", {
         replace: true,
       });
