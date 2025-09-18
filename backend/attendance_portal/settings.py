@@ -321,3 +321,9 @@ LOGGING = {
         "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},
     },
 }
+
+
+if RENDER_HOST:
+    _set = set(CSRF_TRUSTED_ORIGINS)
+    _set.add(f"https://{RENDER_HOST}")
+    CSRF_TRUSTED_ORIGINS = list(_set)
