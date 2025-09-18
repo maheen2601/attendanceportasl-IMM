@@ -99,45 +99,51 @@
 
 // export default axiosInstance;
 
-// frontend/src/utils/axiosInstance.js
 import axios from "axios";
 
-// 1) Base URL (expects full URL including /api/)
+/**
+ * API base URL resolution order (first match wins):
+ * 1) window.__ENV__.API_BASE_URL      ← runtime override (no rebuild)
+ * 2) process.env.REACT_APP_API_BASE_URL  ← CRA build-time env
+ * 3) Fallback to local dev
+ *
+ * IMPORTANT: Value should be a FULL URL and usually include "/api/".
+ */
 const RAW_BASE =
-  process.env.REACT_APP_API_BASE_URL || "http://localhost:8000/api/";
+  (typeof window !== "undefined" && window.__ENV__?.API_BASE_URL) ||
+  process.env.REACT_APP_API_BASE_URL ||
+  "http://localhost:8000/api/";
+
 // ensure trailing slash
 const baseURL = RAW_BASE.endsWith("/") ? RAW_BASE : RAW_BASE + "/";
 
-// 2) Login path (PUBLIC_URL is used by GH Pages; on Render it'll be undefined)
+// Login redirect path (PUBLIC_URL is set by CRA/GH Pages; on Render it’s empty)
 const LOGIN_PATH = `${process.env.PUBLIC_URL || ""}/login`;
 
-// 3) If your backend uses SimpleJWT defaults, set this to 'token/refresh/'
-//    If you created /api/refresh/, leave as 'refresh/'
-const REFRESH_PATH =
-  process.env.REACT_APP_JWT_REFRESH_PATH || "token/refresh/";
-
-// Build absolute refresh URL safely
+// If your backend uses SimpleJWT defaults, this is "token/refresh/"
+// If you created /api/refresh/, set env REACT_APP_JWT_REFRESH_PATH=refresh/
+const REFRESH_PATH = process.env.REACT_APP_JWT_REFRESH_PATH || "token/refresh/";
 const REFRESH_URL = new URL(REFRESH_PATH, baseURL).toString();
 
-const axiosInstance = axios.create({
+const api = axios.create({
   baseURL,
   headers: { "Content-Type": "application/json" },
 });
 
-// Attach JWT on every request
-axiosInstance.interceptors.request.use((config) => {
+// Attach JWT (access) on every request
+api.interceptors.request.use((config) => {
   const token = localStorage.getItem("access");
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Auto-refresh on 401
-axiosInstance.interceptors.response.use(
+// Auto-refresh on 401 and retry once
+api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
 
-    // Network error? bubble up.
+    // network error -> bubble up
     if (!error.response) return Promise.reject(error);
 
     if (error.response.status === 401 && !original._retry) {
@@ -151,16 +157,14 @@ axiosInstance.interceptors.response.use(
         if (!newAccess) throw new Error("No access token in refresh response");
 
         localStorage.setItem("access", newAccess);
-        // update default + retried request header
-        axiosInstance.defaults.headers.Authorization = `Bearer ${newAccess}`;
+        api.defaults.headers.Authorization = `Bearer ${newAccess}`;
         original.headers.Authorization = `Bearer ${newAccess}`;
 
-        return axiosInstance(original);
+        return api(original);
       } catch (e) {
-        // clear tokens and send to login
         localStorage.removeItem("access");
         localStorage.removeItem("refresh");
-        window.location.href = LOGIN_PATH; // '/login' on Render
+        window.location.href = LOGIN_PATH; // sends to /login
         return Promise.reject(e);
       }
     }
@@ -168,5 +172,4 @@ axiosInstance.interceptors.response.use(
   }
 );
 
-export default axiosInstance;
-
+export default api;
