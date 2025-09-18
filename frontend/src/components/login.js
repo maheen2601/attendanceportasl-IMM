@@ -8,6 +8,10 @@ import api, { API_BASE } from "../lib/api"; // shared axios instance
 import BubbleBackground from "../components/BubbleBackground";
 import "./Login.css";
 
+import api, { API_BASE } from "../lib/api";
+
+
+
 // Normalize DRF/SimpleJWT error shapes
 function extractApiError(err) {
   if (!err?.response) return `Network error. Is the API running at ${API_BASE}?`;
