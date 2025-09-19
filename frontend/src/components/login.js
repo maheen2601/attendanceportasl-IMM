@@ -1,15 +1,14 @@
-// src/pages/Login.jsx
-import React, { useState } from "react";
+// src/pages/Login.js
+import React, { useEffect, useState } from "react";
 import { FaUser, FaLock, FaEye, FaEyeSlash } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import { Player } from "@lottiefiles/react-lottie-player";
 import { toast } from "react-toastify";
-import api, { API_BASE } from "../lib/api"; // shared axios instance
+
+import api, { API_BASE, setAuthTokens, clearAuthTokens } from "../lib/api";
+// Optional: if you have these in your project
 import BubbleBackground from "../components/BubbleBackground";
 import "./Login.css";
-
-
-
 
 // Normalize DRF/SimpleJWT error shapes
 function extractApiError(err) {
@@ -32,7 +31,7 @@ function extractApiError(err) {
   return `Request failed (${status}).`;
 }
 
-function Login({ onLogin }) {
+export default function Login({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("admin"); // 'admin' | 'employee'
@@ -40,7 +39,19 @@ function Login({ onLogin }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotMessage, setShowForgotMessage] = useState(false);
   const [loading, setLoading] = useState(false);
+
   const navigate = useNavigate();
+
+  // If already authenticated, bounce to the right dashboard
+  useEffect(() => {
+    const access = localStorage.getItem("access");
+    const savedRole = localStorage.getItem("role");
+    if (access && savedRole) {
+      navigate(savedRole === "admin" ? "/admin-dashboard" : "/employee-dashboard", {
+        replace: true,
+      });
+    }
+  }, [navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -49,20 +60,19 @@ function Login({ onLogin }) {
     setErrorMessage("");
     setLoading(true);
 
-    // Clear any stale tokens before a new attempt
-    localStorage.removeItem("access");
-    localStorage.removeItem("refresh");
+    // Clear stale tokens before attempting a new login
+    clearAuthTokens();
     localStorage.removeItem("role");
 
     try {
-      // ✅ call backend through shared client (no localhost anywhere)
+      // Call your backend login endpoint (must return {access, refresh, role?})
       const res = await api.post("/api/login/", { username, password, role });
 
-      // Trust server-provided role
+      // Prefer server-provided role. Fallback to is_staff if provided.
       const serverRole = res.data?.role ?? (res.data?.is_staff ? "admin" : "employee");
 
-      localStorage.setItem("access", res.data.access);
-      localStorage.setItem("refresh", res.data.refresh);
+      // Save tokens so interceptors can attach Authorization
+      setAuthTokens({ access: res.data.access, refresh: res.data.refresh });
       localStorage.setItem("role", serverRole);
 
       onLogin?.();
@@ -83,6 +93,8 @@ function Login({ onLogin }) {
 
       setErrorMessage(msg);
       toast.error(msg);
+      // Keep password field but you can also clear it if you prefer:
+      // setPassword("");
       console.warn("Login failed:", msg);
     } finally {
       setLoading(false);
@@ -91,23 +103,30 @@ function Login({ onLogin }) {
 
   return (
     <>
+      {/* Background (optional) */}
       <BubbleBackground />
 
+      {/* Top Nav */}
       <nav className="w-full bg-gradient-to-r from-purple-600 via-pink-500 to-red-500 text-white shadow-lg p-4 flex justify-between items-center fixed top-0 left-0 z-40">
         <div className="flex items-center gap-4">
-          <img src={process.env.PUBLIC_URL + "/IMM.png"} alt="IMM Logo" className="h-14 w-auto" />
+          <img
+            src={process.env.PUBLIC_URL + "/IMM.png"}
+            alt="IMM Logo"
+            className="h-14 w-auto"
+          />
           <span className="text-lg md:text-xl font-semibold tracking-wide">
             Interlink <span className="font-bold">Multi Media</span>
           </span>
         </div>
       </nav>
 
+      {/* Main Card */}
       <div className="relative min-h-screen flex items-center justify-center p-6 pt-24 z-10">
         <div className="bg-white/85 backdrop-blur rounded-xl shadow-xl overflow-hidden w-full max-w-5xl border border-white/40">
           <div className="w-full md:flex">
             {/* Left: Login Form */}
             <div className="w-full md:w-1/2 p-8">
-              <h2 className="text-2xl font-bold text-center mb-2">Login</h2>
+              <h1 className="text-2xl font-bold text-center mb-2">Login</h1>
 
               {/* Role Toggle */}
               <div className="flex justify-center gap-4 mb-6">
@@ -146,16 +165,18 @@ function Login({ onLogin }) {
                   <button
                     onClick={() => setErrorMessage("")}
                     className="ml-3 text-red-600 hover:text-red-800 font-semibold"
+                    aria-label="Dismiss error"
                   >
                     ✖
                   </button>
                 </div>
               )}
 
-              <form onSubmit={handleSubmit}>
+              {/* Form */}
+              <form onSubmit={handleSubmit} noValidate>
                 {/* Username */}
                 <div className="relative mb-4">
-                  <FaUser className="absolute left-3 top-3 text-gray-400" />
+                  <FaUser className="absolute left-3 top-3 text-gray-400" aria-hidden />
                   <input
                     type="text"
                     value={username}
@@ -164,13 +185,15 @@ function Login({ onLogin }) {
                     onChange={(e) => setUsername(e.target.value)}
                     required
                     autoFocus
+                    autoComplete="username"
                     disabled={loading}
+                    aria-label="Username"
                   />
                 </div>
 
                 {/* Password */}
-                <div className="relative mb-4">
-                  <FaLock className="absolute left-3 top-3 text-gray-400" />
+                <div className="relative mb-2">
+                  <FaLock className="absolute left-3 top-3 text-gray-400" aria-hidden />
                   <input
                     type={showPassword ? "text" : "password"}
                     value={password}
@@ -179,6 +202,8 @@ function Login({ onLogin }) {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     disabled={loading}
+                    autoComplete="current-password"
+                    aria-label="Password"
                   />
                   <button
                     type="button"
@@ -191,6 +216,7 @@ function Login({ onLogin }) {
                   </button>
                 </div>
 
+                {/* Forgot Password link */}
                 <div
                   className="text-right text-sm mb-4 text-blue-600 hover:underline cursor-pointer"
                   onClick={() => setShowForgotMessage(true)}
@@ -198,6 +224,7 @@ function Login({ onLogin }) {
                   Forgot password?
                 </div>
 
+                {/* Submit */}
                 <button
                   type="submit"
                   disabled={loading}
@@ -216,6 +243,7 @@ function Login({ onLogin }) {
                     <button
                       onClick={() => setShowForgotMessage(false)}
                       className="absolute top-2 right-3 text-yellow-700 hover:text-yellow-900 font-bold"
+                      aria-label="Dismiss message"
                     >
                       ✖
                     </button>
@@ -226,7 +254,7 @@ function Login({ onLogin }) {
               </form>
             </div>
 
-            {/* Right: Lottie Illustration */}
+            {/* Right: Lottie Illustration (optional) */}
             <div className="hidden md:flex items-center justify-center md:w-1/2 bg-gray-50">
               <Player
                 autoplay
@@ -241,5 +269,3 @@ function Login({ onLogin }) {
     </>
   );
 }
-
-export default Login;
