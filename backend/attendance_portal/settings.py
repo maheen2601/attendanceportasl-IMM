@@ -171,6 +171,9 @@ LOGGING = {
 import os, dj_database_url
 
 
+# settings.py
+import os
+NOTIFY_ADMIN_EMAILS = [e.strip() for e in os.getenv("NOTIFY_ADMIN_EMAILS","").split(",") if e.strip()]
 
 
 if RENDER_HOST:
