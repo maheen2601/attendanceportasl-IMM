@@ -169,6 +169,25 @@ LOGGING = {
     },
 }
 import os, dj_database_url
+# ----- SMTP / email -----
+def env_bool(k, default="False"):
+    return (os.getenv(k, default) or "").strip().lower() in {"1","true","yes","on"}
+
+EMAIL_BACKEND      = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST         = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT         = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_USE_TLS      = env_bool("EMAIL_USE_TLS", "True")
+EMAIL_USE_SSL      = env_bool("EMAIL_USE_SSL", "False")   # keep False when TLS=True
+EMAIL_HOST_USER    = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD= os.getenv("EMAIL_HOST_PASSWORD", "")
+
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "AdminHub <pc19463.malikfarooq@gmail.com>")
+NOTIFY_ADMIN_EMAILS = [e.strip() for e in os.getenv("NOTIFY_ADMIN_EMAILS", "").split(",") if e.strip()]
+
+
+
+
+
 
 # settings.py
 import os
