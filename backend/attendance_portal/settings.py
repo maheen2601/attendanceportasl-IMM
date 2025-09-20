@@ -170,10 +170,18 @@ LOGGING = {
 }
 import os, dj_database_url
 
-
 # settings.py
 import os
-NOTIFY_ADMIN_EMAILS = [e.strip() for e in os.getenv("NOTIFY_ADMIN_EMAILS","").split(",") if e.strip()]
+
+# … your existing SMTP settings …
+
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "AdminHub <pc19463.malikfarooq@gmail.com>")
+
+# IMPORTANT: turn comma-separated env into a real list
+NOTIFY_ADMIN_EMAILS = [
+    e.strip() for e in os.getenv("NOTIFY_ADMIN_EMAILS", "").split(",") if e.strip()
+]
+
 
 
 if RENDER_HOST:
