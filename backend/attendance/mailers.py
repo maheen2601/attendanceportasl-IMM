@@ -1,16 +1,29 @@
+# mailers.py
+from typing import Iterable
 from django.conf import settings
 from django.core.mail import send_mail
 
-def _send_safe(subject: str, body: str, to: list[str]):
-    if not to:
+def _to_list(v) -> list[str]:
+    if not v:
+        return []
+    if isinstance(v, (list, tuple, set)):
+        return [str(x).strip() for x in v if str(x).strip()]
+    if isinstance(v, str):
+        return [p.strip() for p in v.split(",") if p.strip()]
+    return [str(v)]
+
+def _send_safe(subject: str, body: str, to):
+    recipients = _to_list(to)
+    if not recipients:
         return
     try:
-        send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, to, fail_silently=True)
+        send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, recipients, fail_silently=True)
     except Exception:
-        pass  # log if you want
+        pass  # or log
 
 def _employee_email(emp):
-    return getattr(emp.user, "email", None) or None
+    email = getattr(emp.user, "email", "") or ""
+    return email.strip() or None
 
 # ---- Leaves ----
 def notify_admin_new_leave(leave):
@@ -23,11 +36,12 @@ def notify_admin_new_leave(leave):
         f"Notice met: {'Yes' if leave.notice_met else 'No'}\n"
         f"Reason:\n{leave.reason}\n"
     )
-    _send_safe(subject, body, settings.NOTIFY_ADMIN_EMAILS)
+    _send_safe(subject, body, getattr(settings, "NOTIFY_ADMIN_EMAILS", []))
 
 def notify_employee_leave_decision(leave):
     to = _employee_email(leave.employee)
-    if not to: return
+    if not to:
+        return
     subject = f"Your leave was {leave.status}"
     body = (
         f"Hi {leave.employee.user.username},\n\n"
@@ -45,11 +59,12 @@ def notify_admin_new_earlyoff(req):
         f"Date: {req.for_date}\n"
         f"Reason:\n{req.reason}\n"
     )
-    _send_safe(subject, body, settings.NOTIFY_ADMIN_EMAILS)
+    _send_safe(subject, body, getattr(settings, "NOTIFY_ADMIN_EMAILS", []))
 
 def notify_employee_earlyoff_decision(req):
     to = _employee_email(req.employee)
-    if not to: return
+    if not to:
+        return
     subject = f"Your early-off was {req.status}"
     note = getattr(req, "admin_note", "") or getattr(req, "note", "")
     body = (
