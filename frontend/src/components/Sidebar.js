@@ -8,6 +8,7 @@ import {
   ChartBarIcon,
   ClockIcon,                 // 👈 new
   ArrowLeftOnRectangleIcon,
+  ArrowRightOnRectangleIcon
 } from "@heroicons/react/24/outline";
 import ConfirmDialog from "./ConfirmDialog";
 
