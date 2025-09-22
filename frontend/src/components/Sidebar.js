@@ -23,7 +23,7 @@ const Sidebar = () => {
     { to: "/admin/leave-requests", label: "Leave Requests",  icon: <ChartBarIcon className="w-5 h-5" /> },
     // NEW: admin can approve/reject time change requests
     { to: "/admin/time-corrections", label: "Time Change Requests", icon: <ClockIcon className="w-5 h-5" /> },
-    { to: '/admin/earlyoff',    label: 'Early-off Requests', icon: <ClockIcon className="w-5 h-5" /> },
+    { to: '/admin/earlyoff', label: 'Early-off Requests', icon: <ArrowRightOnRectangleIcon className="w-5 h-5" /> },
     
   ];
 
