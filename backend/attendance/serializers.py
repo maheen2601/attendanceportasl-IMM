@@ -7,24 +7,6 @@ from .models import Employee, LeaveRequest, Attendance
 from .models import EarlyOffRequest
 
 
-class EmployeeCreateSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(write_only=True)
-    password = serializers.CharField(write_only=True)
-
-    class Meta:
-        model = Employee
-        fields = ['id', 'username', 'password', 'designation', 'leave_balance', 'join_date']
-
-    def create(self, validated_data):
-        username = validated_data.pop('username')
-        password = validated_data.pop('password')
-        user = User.objects.create_user(username=username, password=password)
-        return Employee.objects.create(user=user, **validated_data)
-
-    def to_representation(self, instance):
-        rep = super().to_representation(instance)
-        rep['username'] = instance.user.username
-        return rep
 
 class EmployeeProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
@@ -33,12 +15,6 @@ class EmployeeProfileSerializer(serializers.ModelSerializer):
         model = Employee
         fields = ['id', 'username', 'designation', 'join_date', 'leave_balance']
 
-class AttendanceSerializer(serializers.ModelSerializer):
-    date = serializers.DateField(format="%Y-%m-%d")
-    class Meta:
-        model = Attendance
-        fields = ["id","date","status","mode","check_in","check_out","minutes_late","tag","hours_worked"]
-        read_only_fields = ["hours_worked"]
 class LeaveRequestSerializer(serializers.ModelSerializer):
     # nice-to-have display name for admin list
     employee_name = serializers.CharField(
@@ -99,28 +75,6 @@ class AttendanceSerializer(serializers.ModelSerializer):
             return round(delta.total_seconds() / 3600, 2)
         return None
 
-# # attendance/serializers.py
-
-# class EarlyOffRequestSerializer(serializers.ModelSerializer):
-#     employee_name = serializers.CharField(source='employee.user.username', read_only=True)
-
-#     class Meta:
-#         model = EarlyOffRequest
-#         # keep ONLY fields that exist on the model
-#         fields = [
-#             'id', 'employee', 'employee_name',
-#             'for_date', 'reason', 'status',
-#             'created_at', 'updated_at'
-#         ]
-#         read_only_fields = ['status', 'created_at', 'updated_at']
-
-
-# # used by admin PATCH to approve/reject
-# class EarlyOffDecisionSerializer(serializers.ModelSerializer):
-#     class Meta:
-#         model = EarlyOffRequest
-#         fields = ['status']  # add 'admin_note' here only if the model has it
-
 class EarlyOffRequestSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source='employee.user.username', read_only=True)
     class Meta:
@@ -159,6 +113,8 @@ class AttendanceCorrectionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ("status", "admin_note", "created_at", "employee")
 
+
+
 class AttendanceCorrectionUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = AttendanceCorrection
@@ -190,17 +146,18 @@ class EmployeeCreateSerializer(serializers.ModelSerializer):
         rep['username'] = instance.user.username
         rep['email'] = instance.user.email  # helpful for admin UI
         return rep
-# attendance/serializers.py
+    
+    
 from rest_framework import serializers
 from .models import Employee
-
+# attendance/serializers.py
 class EmployeeListSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
     email    = serializers.EmailField(source="user.email", read_only=True)
+    wfh_count    = serializers.IntegerField(read_only=True, default=0)   # must be declared
+    onsite_count = serializers.IntegerField(read_only=True, default=0)   # must be declared
 
     class Meta:
         model  = Employee
-        fields = ("id", "username", "email", "designation", "leave_balance", "join_date")
-
-
+        fields = ("id","username","email","designation","leave_balance","join_date","wfh_count","onsite_count")
 
