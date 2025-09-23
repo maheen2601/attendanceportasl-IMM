@@ -161,10 +161,6 @@ class CreateEmployeeAPIView(APIView):
             return Response({"message": "Employee created successfully."}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class EmployeeListAPIView(ListAPIView):
-    queryset = Employee.objects.select_related('user').all()
-    serializer_class = EmployeeCreateSerializer
-    permission_classes = [IsAdminUser]
 
 
 
@@ -1261,11 +1257,66 @@ def my_attendance_today(request):
         "hours_worked": 0,
     })
 
-
+from django.db.models import Q, Count
+from .serializers import EmployeeListSerializer
+from rest_framework.generics import ListAPIView
+from rest_framework.permissions import IsAdminUser  
 # attendance/views.py
-from .serializers import EmployeeListSerializer  # import it
+from datetime import date, timedelta
+from django.db.models import Q, Count
+from rest_framework.generics import ListAPIView
+from rest_framework.permissions import IsAdminUser
+from .models import Employee
+from .serializers import EmployeeListSerializer
 
 class EmployeeListAPIView(ListAPIView):
-    queryset = Employee.objects.select_related("user").all()
     serializer_class = EmployeeListSerializer
     permission_classes = [IsAdminUser]
+
+    def get_queryset(self):
+        # ---- parse optional date range (?from=YYYY-MM-DD&to=YYYY-MM-DD)
+        f = (self.request.query_params.get("from") or "").strip()
+        t = (self.request.query_params.get("to")   or "").strip()
+
+        if f and t:
+            try:
+                start = date.fromisoformat(f)
+                end   = date.fromisoformat(t)
+            except ValueError:
+                # fallback if bad params
+                end = date.today()
+                start = end - timedelta(days=29)
+        else:
+            # default = current month to today
+            today = date.today()
+            start = today.replace(day=1)
+            end   = today
+
+        if end < start:
+            end = start
+        if (end - start).days > 120:  # clamp long ranges
+            end = start + timedelta(days=120)
+
+        # ---- annotate counts inside the range
+        return (
+            Employee.objects.select_related("user")
+            .annotate(
+                wfh_count=Count(
+                    "attendances",
+                    filter=Q(
+                        attendances__status="Present",
+                        attendances__mode="WFH",
+                        attendances__date__range=(start, end),
+                    ),
+                ),
+                onsite_count=Count(
+                    "attendances",
+                    filter=Q(
+                        attendances__status="Present",
+                        attendances__mode="Onsite",
+                        attendances__date__range=(start, end),
+                    ),
+                ),
+            )
+            .order_by("user__username")
+        )
