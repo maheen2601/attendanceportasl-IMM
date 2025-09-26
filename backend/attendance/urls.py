@@ -17,7 +17,7 @@ from .views import (
 )
 from .views import my_leaves, my_leave_cancel
 from .views import me_dashboard
-
+from .views import MeProfileView
 # urlpatterns = [
 #     path('login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
 #     path('refresh/', TokenRefreshView.as_view(), name='token_refresh'),
@@ -171,6 +171,7 @@ urlpatterns = [
     path("refresh/", TokenRefreshView.as_view(),          name="token_refresh"),
 
     # -------- Employee (self)
+    path("me/profile/", MeProfileView.as_view(), name="me-profile")
     path("me/profile/",               me_profile,    name="me_profile"),
     path("me/dashboard/",             me_dashboard,  name="me_dashboard"),
     path("me/attendance/",            my_attendance, name="my_attendance"),
