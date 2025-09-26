@@ -21,7 +21,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ---------- security / debug ----------
 SECRET_KEY = env("SECRET_KEY", "dev-secret-change-me")
 DEBUG = env("DEBUG", "False").lower() == "true"
-
+from corsheaders.defaults import default_headers
+CORS_ALLOW_HEADERS = list(default_headers) + ["authorization"]
+CORS_ALLOW_CREDENTIALS = True
 # Render host (Render sets RENDER_EXTERNAL_HOSTNAME)
 RENDER_HOST = env("RENDER_EXTERNAL_HOSTNAME", "")
 
