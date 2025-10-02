@@ -250,6 +250,6 @@ urlpatterns = [
     path("admin/stats/",                views.dashboard_stats,     name="dashboard_stats"),
 
     # --- Lead queue (optional but handy)
-    path("lead/leave-requests/",                 views.lead_leave_list,  name="lead_leave_list"),
-    path("lead/leave-requests/<int:pk>/",        views.lead_leave_update, name="lead_leave_update"),
+    # path("lead/leave-requests/",                 views.lead_leave_list,  name="lead_leave_list"),
+    # path("lead/leave-requests/<int:pk>/",        views.lead_leave_update, name="lead_leave_update"),
 ]
