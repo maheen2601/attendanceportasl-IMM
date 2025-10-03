@@ -233,6 +233,7 @@ urlpatterns = [
 
     # --- Admin
     path("admin/employees/",            views.EmployeeListAPIView.as_view(),   name="admin_employee_list"),
+    path("admin/stats/",               dashboard_stats,     name="dashboard_stats"),
     path("admin/employees/create/",     views.CreateEmployeeAPIView.as_view(), name="admin_employee_create"),
     path("admin/employees/<int:pk>/",   views.DeleteEmployeeAPIView.as_view(), name="admin_employee_delete"),
 
