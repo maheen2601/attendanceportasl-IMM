@@ -165,6 +165,66 @@ from .views import (
     get_leave_distribution,
 )
 
+
+from django.urls import path
+from .views import CustomTokenObtainPairView
+from rest_framework_simplejwt.views import TokenRefreshView
+from .views import CreateEmployeeAPIView
+from .views import EmployeeListAPIView
+from .views import DeleteEmployeeAPIView
+from .views import LeaveRequestListAPIView, LeaveRequestUpdateAPIView
+from .views import dashboard_stats
+from . import views
+from .views import (
+    CustomTokenObtainPairView,
+    CreateEmployeeAPIView, EmployeeListAPIView, DeleteEmployeeAPIView,
+    LeaveRequestListAPIView, LeaveRequestUpdateAPIView,
+    dashboard_stats,
+    me_profile, my_stats, my_attendance,
+    my_leaves, my_leave_cancel,
+)
+from .views import my_leaves, my_leave_cancel
+from .views import me_dashboard
+
+from .views import team_list
+from .views import lead_leave_list,lead_leave_update
+
+
+
+from .views import admin_employees, lead_employees
+# attendance/urls.py
+from django.urls import path
+from rest_framework_simplejwt.views import TokenRefreshView
+
+from .views import (
+    # auth
+    CustomTokenObtainPairView,
+
+    # employee self
+    me_profile, me_dashboard, my_stats, my_attendance,
+    check_in, check_out, pre_notify_late,
+    my_leaves, my_leave_cancel,
+    my_attendance_corrections,
+
+    # admin employees
+    CreateEmployeeAPIView, EmployeeListAPIView, DeleteEmployeeAPIView,
+
+    # admin leave requests
+    LeaveRequestAdminList, LeaveRequestAdminUpdate,
+
+    # time corrections admin
+    AttendanceCorrectionAdminList, AttendanceCorrectionAdminUpdate,
+
+    # early-off + policy + stats
+    policy_settings_get, earlyoff_list_create,
+    earlyoff_admin_list, earlyoff_update,
+    dashboard_stats,
+
+    # (optional) extra
+    get_leave_distribution,
+)
+
+
 urlpatterns = [
     # -------- Auth
     path("login/",   CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
@@ -209,6 +269,17 @@ urlpatterns = [
     path("me/attendance/today/", views.my_attendance_today, name="my-attendance-today"),
     # your existing list/range endpoint:
     path("me/attendance/", views.my_attendance, name="my-attendance"),
+    # your existing list/range endpoint:
+    path("me/attendance/", views.my_attendance, name="my-attendance"),
+    path("admin/teams/", team_list, name="admin_team_list"),
+    # lead endpoints
+    path("admin/teams/", team_list, name="admin_team_list"),
+    path("lead/leave-requests/", lead_leave_list, name="lead_leave_list"),
+    path("lead/leave-requests/<int:pk>/", lead_leave_update, name="lead_leave_update"),
+
+
+    path("admin/employees/", admin_employees, name="admin_employees"),
+    path("lead/employees/", lead_employees, name="lead_employees"),
 ]
 
 
