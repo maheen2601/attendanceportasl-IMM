@@ -1591,13 +1591,15 @@ def _fmt_hhmm(dt):
         return None
     return dt.astimezone(timezone.get_current_timezone()).strftime("%H:%M")
 
-
+from django.utils import timezone
 def _parse_range(request):
-    f = parse_date(request.GET.get("from") or "") or date.today()
-    t = parse_date(request.GET.get("to") or "") or date.today()
+    f = parse_date(request.GET.get("from") or "")
+    t = parse_date(request.GET.get("to") or "")
+    today = timezone.localdate()
+    f = f or today
+    t = t or today
     if t < f:
         t = f
-    # (optional) clamp to max window
     if (t - f).days > 120:
         t = f + timedelta(days=120)
     return f, t
