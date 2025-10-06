@@ -602,7 +602,11 @@ function EmployeeList() {
                   <td className="border px-4 py-2">{dayHours}</td>
 
                   <td className="border px-4 py-2">{statusChip}</td>
-                  <td className="border px-4 py-2">{emp.join_date || "-"}</td>
+                  <td className="border px-4 py-2">
+   {fromDate && toDate
+     ? (fromDate === toDate ? fromDate : `${fromDate} → ${toDate}`)
+     : "—"}
+ </td>
                   <td className="border px-4 py-2">
                     <button
                       onClick={() => confirmDelete(emp.id)}
@@ -648,5 +652,6 @@ function EmployeeList() {
 }
 
 export default EmployeeList;
+
 
 
