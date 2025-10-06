@@ -245,7 +245,7 @@ const HEADERS = [
   "Check-out",
   "Hours",
   "Status",
-  "Join Date",
+  "Date",
   "Actions",
 ];
 
@@ -566,7 +566,7 @@ function AdminEmployees() {
                   <td className="border px-4 py-2">{dayHours}</td>
 
                   <td className="border px-4 py-2">{statusChip}</td>
-                  <td className="border px-4 py-2">{emp.join_date || "-"}</td>
+                  <td className="border px-4 py-2">{isSingleDay ? fromDate : "—"} </td>
                   <td className="border px-4 py-2">
                     <button
                       onClick={() => confirmDelete(emp.id)}
