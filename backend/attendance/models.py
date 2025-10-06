@@ -173,17 +173,41 @@ from datetime import date as date_cls, time as time_cls, datetime as dt
 #     decided_at = models.DateTimeField(blank=True, null=True)
 
 
+# attendance/models.py
+from django.db import models
+from django.contrib.auth.models import User
+from datetime import date as date_cls
+from datetime import date as date_cls, time as time_cls, datetime as dt
+
+
+
+class Team(models.Model):
+    name = models.CharField(max_length=80, unique=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+class TeamLead(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="team_lead")
+    teams = models.ManyToManyField(Team, related_name="leaders", blank=True)
+    def __str__(self): return f"{self.user.username} (lead)"
+
 class Employee(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     designation = models.CharField(max_length=100)
     join_date = models.DateField(auto_now_add=True)
     leave_balance = models.IntegerField(default=15)
-    shift_start = models.TimeField(default= time_cls(9, 0))
-    shift_end   = models.TimeField(default= time_cls(17, 0))
+    shift_start = models.TimeField(default=time_cls(9, 0))
+    shift_end   = models.TimeField(default=time_cls(17, 0))
+
+    # NEW: team assignment
+    team = models.ForeignKey(Team, on_delete=models.SET_NULL, null=True, blank=True, related_name="employees")
 
     def __str__(self):
         return self.user.username
-
+    
 
 class Attendance(models.Model):
     STATUS_CHOICES = [
@@ -202,7 +226,7 @@ class Attendance(models.Model):
         ('early_off_ok', 'Early-off (approved)'),
         ('short_hours',  'Short hours (unapproved)'),
     ]
-
+    
     employee   = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='attendances')
     date       = models.DateField(default=date_cls.today, db_index=True)
     status     = models.CharField(max_length=10, choices=STATUS_CHOICES)
@@ -251,24 +275,48 @@ class LeaveRequest(models.Model):
         ('casual', 'Casual'),
         ('annual', 'Annual'),
         ('comp',   'Compensatory'),
-        ('wfh',    'WFH'),   # keep only if you truly treat WFH as a "leave"
+        ('wfh',    'WFH'),
     )
+    # final status (unchanged semantics)
     STATUS_CHOICES = (
-        ('pending',       'Pending'),
-        ('approved',      'Approved'),
-        ('rejected',      'Rejected'),
-        ('auto_rejected', 'Auto Rejected'),
+        ('pending',  'Pending'),     # means “not finally decided yet”
+        ('approved', 'Approved'),    # final
+        ('rejected', 'Rejected'),    # final
     )
 
-    employee   = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='leave_requests')
+    # NEW: which step we are on
+    STEP_CHOICES = (
+        ('lead',  'Lead review'),   # waiting on lead
+        ('admin', 'Admin review'),  # waiting on admin
+        ('done',  'Finalized'),     # final done (approved / rejected)
+    )
+
+    employee   = models.ForeignKey('Employee', on_delete=models.CASCADE, related_name='leave_requests')
     start_date = models.DateField()
     end_date   = models.DateField()
     reason     = models.TextField()
     leave_type = models.CharField(max_length=10, choices=LEAVE_TYPES, default='casual')
+
+    # FINAL status (what you already had; keep as “pending” until admin finishes OR lead rejects)
     status     = models.CharField(max_length=15, choices=STATUS_CHOICES, default='pending')
+
+    # NEW: routing/step
+    step       = models.CharField(max_length=10, choices=STEP_CHOICES, default='lead', db_index=True)
+
+    # Policy flags you already had
     notice_met = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     peer_note  = models.TextField(blank=True, null=True)
+
+    # NEW: lead decision fields
+    LEAD_DECISIONS = (('approved','Approved'), ('rejected','Rejected'))
+    lead_decision   = models.CharField(max_length=10, choices=LEAD_DECISIONS, blank=True, null=True)
+    lead_note       = models.TextField(blank=True, default="")
+    lead_decided_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='lead_leave_decisions')
+    lead_decided_at = models.DateTimeField(null=True, blank=True)
+
+    # NEW: admin note (admin decision is reflected in final status)
+    admin_note      = models.TextField(blank=True, default="")
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -276,8 +324,7 @@ class LeaveRequest(models.Model):
             raise ValidationError("Start date cannot be after end date.")
 
     def __str__(self):
-        return f"{self.employee.user.username} - {self.status}"
-
+        return f"{self.employee.user.username} - {self.status} [{self.step}]"
 
 class PolicySettings(models.Model):
     grace_minutes = models.PositiveIntegerField(default=15)       # late grace
@@ -344,3 +391,4 @@ class AttendanceCorrection(models.Model):
 
     def __str__(self):
         return f"{self.employee.user.username} {self.for_date} [{self.status}]"
+
