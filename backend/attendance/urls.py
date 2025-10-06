@@ -132,7 +132,7 @@ urlpatterns = [
     path("me/leave-distribution/",      views.get_leave_distribution,    name="leave_distribution"),
 
     # -------- Admin: employees  (👈 these match your React page)
-    path("admin/employees/",            EmployeeListAPIView.as_view(),   name="admin_employee_list"),
+    # path("admin/employees/",            EmployeeListAPIView.as_view(),   name="admin_employee_list"),
     path("admin/employees/create/",     CreateEmployeeAPIView.as_view(), name="admin_employee_create"),
     path("admin/employees/<int:pk>/",   DeleteEmployeeAPIView.as_view(), name="admin_employee_delete"),
 
