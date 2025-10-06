@@ -312,6 +312,13 @@ import {
 
 const COLORS = ["#8b5cf6", "#06b6d4", "#f43f5e", "#10b981", "#60a5fa", "#f59e0b"];
 
+// Team options for the filter (add/remove as needed)
+const TEAM_OPTIONS = [
+  "TCP","The News","Hungama","Jang",
+  "Celeb In Box","Gad Insider","Gossip Herald",
+  "Geo","SEO","Data","Social",
+];
+
 /* small date helpers */
 const fmt = (d) => d.toISOString().slice(0, 10);
 const todayStr = () => fmt(new Date());
@@ -331,35 +338,36 @@ export default function AdminDashboard() {
     range: { from: "", to: "" },
   });
 
-  // Date range UI (default: last 7 days)
+  // Range (default last 7 days)
   const [from, setFrom] = useState(daysAgoStr(6));
   const [to, setTo] = useState(todayStr());
 
-  const fetchStats = async () => {
-  setLoading(true);
-  setErr("");
-  try {
-    const params = {};
-    if (from) params.from = from; // from is a state "YYYY-MM-DD"
-    if (to) params.to = to;
+  // ---- Team filter state: [] means "All"
+  const [selectedTeams, setSelectedTeams] = useState([]);
 
-    const res = await api.get("dashboard-stats/", { params });
-    setStats(res.data || {});
-//     const res = await api.get("dashboard-stats/", {
-//   params: { from, to },  // only include if you have from/to strings
-// });
-  } catch (e) {
-    const msg = e?.response?.data?.detail || "Failed to load dashboard stats";
-    setErr(msg);
-  } finally {
-    setLoading(false);
-  }
-};
+  const fetchStats = async () => {
+    setLoading(true);
+    setErr("");
+    try {
+      const params = {};
+      if (from) params.from = from;
+      if (to) params.to = to;
+      if (selectedTeams.length > 0) params.team = selectedTeams; // sends ?team=A&team=B
+
+      const res = await api.get("dashboard-stats/", { params });
+      setStats(res.data || {});
+    } catch (e) {
+      const msg = e?.response?.data?.detail || "Failed to load dashboard stats";
+      setErr(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    fetchStats({ from, to });
+    fetchStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [from, to, JSON.stringify(selectedTeams)]);
 
   const {
     total_employees = 0,
@@ -371,7 +379,7 @@ export default function AdminDashboard() {
     range = {},
   } = stats;
 
-  // Normalize trend → array oldest→newest
+  // Normalize trend → oldest → newest
   const lineData = useMemo(() => {
     const raw = Array.isArray(stats.trend) ? stats.trend : [];
     return raw
@@ -380,10 +388,7 @@ export default function AdminDashboard() {
         Present: Number(d.present ?? 0),
         Leave: Number(d.leave ?? 0),
         Total: Number(d.total ?? 0),
-        Absent: Math.max(
-          0,
-          Number(d.total ?? 0) - Number(d.present ?? 0) - Number(d.leave ?? 0)
-        ),
+        Absent: Math.max(0, Number(d.total ?? 0) - Number(d.present ?? 0) - Number(d.leave ?? 0)),
         _iso: d.date,
       }))
       .sort((a, b) => new Date(a._iso) - new Date(b._iso));
@@ -402,7 +407,7 @@ export default function AdminDashboard() {
   const applyRange = (e) => {
     e?.preventDefault?.();
     if (!from || !to) return;
-    fetchStats({ from, to });
+    fetchStats();
   };
 
   const resetRange = () => {
@@ -410,90 +415,93 @@ export default function AdminDashboard() {
     const t = todayStr();
     setFrom(f);
     setTo(t);
-    fetchStats({ from: f, to: t });
+    setSelectedTeams([]); // also reset teams to All
   };
 
   return (
     <div className="w-full min-h-screen bg-gradient-to-b from-gray-50 to-white px-6 py-10">
-      <div className="flex items-center justify-between mb-6">
+      {/* Header row */}
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <h1 className="text-3xl font-semibold text-gray-800 tracking-tight">
           Admin Dashboard
         </h1>
 
-        {/* Date range filter */}
-        <form onSubmit={applyRange} className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Range:</span>
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="border rounded-lg px-3 py-1.5 text-sm"
+        {/* Right-side controls (date + teams + stat-like card) */}
+        <div className="flex flex-wrap items-end gap-3">
+          {/* Date range */}
+          <form onSubmit={applyRange} className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Range:</span>
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="border rounded-lg px-3 py-1.5 text-sm"
+            />
+            <span className="text-gray-400">—</span>
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="border rounded-lg px-3 py-1.5 text-sm"
+            />
+            <button
+              type="submit"
+              className="ml-2 rounded-lg bg-gray-900 text-white px-3 py-1.5 text-sm"
+            >
+              Apply
+            </button>
+            <button
+              type="button"
+              onClick={resetRange}
+              className="rounded-lg bg-gray-200 text-gray-800 px-3 py-1.5 text-sm"
+            >
+              Reset
+            </button>
+          </form>
+
+          {/* Team filter: dropdown multi-select */}
+          <div className="flex flex-col">
+            <label className="text-sm text-gray-600 mb-1">Teams:</label>
+            <TeamMultiDropdown
+              options={TEAM_OPTIONS}
+              selected={selectedTeams}
+              onChange={(vals) => setSelectedTeams(vals)}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Tip: Search inside the dropdown. “All” = no filter.
+            </p>
+          </div>
+
+          {/* KPI-style Selected Teams card */}
+          <SelectedTeamsStatCard
+            selectedTeams={selectedTeams}
+            onClear={() => setSelectedTeams([])}
           />
-          <span className="text-gray-400">—</span>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="border rounded-lg px-3 py-1.5 text-sm"
-          />
-          <button
-            type="submit"
-            className="ml-2 rounded-lg bg-gray-900 text-white px-3 py-1.5 text-sm"
-          >
-            Apply
-          </button>
-          <button
-            type="button"
-            onClick={resetRange}
-            className="rounded-lg bg-gray-200 text-gray-800 px-3 py-1.5 text-sm"
-          >
-            Reset
-          </button>
-        </form>
+        </div>
       </div>
 
-      {loading && <div>Loading…</div>}
+      {loading && <div className="mt-4">Loading…</div>}
       {err && !loading && (
-        <div className="mb-4 p-3 rounded bg-red-50 text-red-700 border border-red-200">
+        <div className="mt-4 mb-4 p-3 rounded bg-red-50 text-red-700 border border-red-200">
           {err}
         </div>
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <StatCard
-          title="Total Employees"
-          value={total_employees}
-          accent="from-violet-500/20 to-fuchsia-500/20"
-          icon="users"
-        />
-        <StatCard
-          title={`Present (${range?.to || to})`}
-          value={present_today}
-          accent="from-emerald-500/20 to-teal-500/20"
-          icon="check"
-        />
-        <StatCard
-          title={`Absent (${range?.to || to})`}
-          value={absent_today}
-          accent="from-rose-500/20 to-orange-500/20"
-          icon="x"
-        />
-        <StatCard
-          title="Leave Pending"
-          value={leave_pending}
-          accent="from-sky-500/20 to-indigo-500/20"
-          icon="clock"
-        />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 mt-4">
+        <StatCard title="Total Employees" value={total_employees}
+          accent="from-violet-500/20 to-fuchsia-500/20" icon="users" />
+        <StatCard title={`Present (${range?.to || to})`} value={present_today}
+          accent="from-emerald-500/20 to-teal-500/20" icon="check" />
+        <StatCard title={`Absent (${range?.to || to})`} value={absent_today}
+          accent="from-rose-500/20 to-orange-500/20" icon="x" />
+        <StatCard title="Leave Pending" value={leave_pending}
+          accent="from-sky-500/20 to-indigo-500/20" icon="clock" />
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Bar Chart */}
-        <ChartCard
-          title={`Attendance on ${range?.to || to}`}
-          subtitle="Present vs Absent"
-        >
+        <ChartCard title={`Attendance on ${range?.to || to}`} subtitle="Present vs Absent">
           <ChartGradients />
           <div className="h-64">
             {todayBarData.every((d) => d.value === 0) ? (
@@ -502,37 +510,18 @@ export default function AdminDashboard() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={todayBarData} barSize={38}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fill: "#6b7280" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fill: "#6b7280" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
+                  <XAxis dataKey="name" tick={{ fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fill: "#6b7280" }} axisLine={false} tickLine={false} />
                   <Tooltip content={<NiceTooltip />} />
                   <Legend />
-                  <Bar
-                    dataKey="value"
-                    name="Count"
-                    radius={[10, 10, 0, 0]}
-                    fill="url(#barGradient)"
-                  />
+                  <Bar dataKey="value" name="Count" radius={[10,10,0,0]} fill="url(#barGradient)" />
                 </BarChart>
               </ResponsiveContainer>
             )}
           </div>
         </ChartCard>
 
-        {/* Pie Chart */}
-        <ChartCard
-          title={`WFH vs Onsite (${range?.to || to})`}
-          subtitle="Work mode distribution"
-        >
+        <ChartCard title={`WFH vs Onsite (${range?.to || to})`} subtitle="Work mode distribution">
           <div className="h-64">
             {modePieData.every((d) => d.value === 0) ? (
               <EmptyState />
@@ -541,15 +530,8 @@ export default function AdminDashboard() {
                 <PieChart>
                   <Tooltip content={<NiceTooltip />} />
                   <Legend />
-                  <Pie
-                    data={modePieData}
-                    dataKey="value"
-                    nameKey="name"
-                    outerRadius={95}
-                    innerRadius={50}
-                    paddingAngle={3}
-                    label
-                  >
+                  <Pie data={modePieData} dataKey="value" nameKey="name"
+                       outerRadius={95} innerRadius={50} paddingAngle={3} label>
                     {modePieData.map((_, idx) => (
                       <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                     ))}
@@ -560,11 +542,7 @@ export default function AdminDashboard() {
           </div>
         </ChartCard>
 
-        {/* Line Chart */}
-        <ChartCard
-          title="Attendance Trend"
-          subtitle={`${range?.from || from} — ${range?.to || to}`}
-        >
+        <ChartCard title="Attendance Trend" subtitle={`${range?.from || from} — ${range?.to || to}`}>
           <ChartGradients />
           <div className="h-64">
             {lineData.length === 0 ? (
@@ -573,41 +551,13 @@ export default function AdminDashboard() {
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={lineData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: "#6b7280" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fill: "#6b7280" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
+                  <XAxis dataKey="date" tick={{ fill: "#6b7280" }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fill: "#6b7280" }} axisLine={false} tickLine={false} />
                   <Tooltip content={<NiceTooltip />} />
                   <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey="Absent"
-                    stroke="url(#lineRed)"
-                    strokeWidth={2.5}
-                    dot={{ r: 3 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="Present"
-                    stroke="url(#lineGreen)"
-                    strokeWidth={2.5}
-                    dot={{ r: 3 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="Total"
-                    stroke="url(#lineIndigo)"
-                    strokeWidth={2.5}
-                    dot={{ r: 3 }}
-                  />
+                  <Line type="monotone" dataKey="Absent"  stroke="url(#lineRed)"    strokeWidth={2.5} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="Present" stroke="url(#lineGreen)"  strokeWidth={2.5} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="Total"   stroke="url(#lineIndigo)" strokeWidth={2.5} dot={{ r: 3 }} />
                 </LineChart>
               </ResponsiveContainer>
             )}
@@ -618,12 +568,235 @@ export default function AdminDashboard() {
   );
 }
 
-/* ---------- Small helpers / presentational bits ---------- */
+/* ---------- Team dropdown (multi-select with search/All) ---------- */
+function TeamMultiDropdown({ options = [], selected = [], onChange }) {
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const ref = React.useRef(null);
 
+  const normalized = options.map((o) => ({ label: o, value: o }));
+  const filtered = query
+    ? normalized.filter((o) =>
+        o.label.toLowerCase().includes(query.trim().toLowerCase())
+      )
+    : normalized;
+
+  const noneSelectedMeansAll = selected.length === 0;
+
+  const toggle = (val) => {
+    if (selected.includes(val)) {
+      const next = selected.filter((v) => v !== val);
+      onChange(next); // empty => All
+    } else {
+      const next = [...selected, val];
+      onChange(next);
+    }
+  };
+
+  const selectAll = () => onChange([]);
+  const selectFiltered = () => onChange(Array.from(new Set([...selected, ...filtered.map(f => f.value)])));
+  const clearFiltered = () => onChange(selected.filter(v => !filtered.some(f => f.value === v)));
+
+  // click outside to close
+  React.useEffect(() => {
+    const onDocClick = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  const buttonLabel = noneSelectedMeansAll
+    ? "All teams"
+    : `${selected.length} selected`;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-[260px] rounded-lg border px-3 py-2 text-sm bg-white text-gray-800 flex items-center justify-between"
+      >
+        <span className="truncate">{buttonLabel}</span>
+        <svg className={`h-4 w-4 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor"><path d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 011.08 1.04l-4.25 4.25a.75.75 0 01-1.06 0L5.21 8.27a.75.75 0 01.02-1.06z"/></svg>
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-2 w-[320px] rounded-xl border border-gray-200 bg-white shadow-lg">
+          {/* Top controls */}
+          <div className="p-2 border-b border-gray-100 flex items-center gap-2">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search teams…"
+              className="flex-1 rounded-md border px-2 py-1.5 text-sm"
+            />
+            <button
+              type="button"
+              onClick={selectAll}
+              className="rounded-md border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+              title="All = no filter"
+            >
+              All
+            </button>
+          </div>
+
+          {/* Bulk actions on filtered set */}
+          <div className="px-2 pt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={selectFiltered}
+              className="rounded-md border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+              title="Add all matching the search"
+            >
+              Add filtered
+            </button>
+            <button
+              type="button"
+              onClick={clearFiltered}
+              className="rounded-md border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+              title="Remove all matching the search"
+            >
+              Remove filtered
+            </button>
+            {!noneSelectedMeansAll && (
+              <button
+                type="button"
+                onClick={selectAll}
+                className="ml-auto rounded-md border px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {/* List */}
+          <div className="max-h-56 overflow-auto p-2 space-y-1">
+            {/* All pseudo-option at top */}
+            <label className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 cursor-pointer">
+              <input
+                type="checkbox"
+                className="rounded"
+                checked={noneSelectedMeansAll}
+                onChange={selectAll}
+              />
+              <span className="text-sm text-gray-800">All (no filter)</span>
+            </label>
+
+            <div className="h-px bg-gray-100 my-1" />
+
+            {filtered.length === 0 ? (
+              <div className="text-xs text-gray-400 px-2 py-1">No matches</div>
+            ) : (
+              filtered.map((opt) => (
+                <label
+                  key={opt.value}
+                  className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    className="rounded"
+                    checked={selected.includes(opt.value)}
+                    onChange={() => toggle(opt.value)}
+                  />
+                  <span className="text-sm text-gray-800">{opt.label}</span>
+                </label>
+              ))
+            )}
+          </div>
+
+          {/* Footer: selected chips */}
+          <div className="border-t border-gray-100 p-2">
+            {noneSelectedMeansAll ? (
+              <span className="text-xs text-gray-500">All teams</span>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {selected.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-800"
+                  >
+                    {t}
+                    <button
+                      type="button"
+                      onClick={() => toggle(t)}
+                      className="hover:text-gray-600"
+                      title="Remove"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- KPI-style "Selected Teams" card ---------- */
+function SelectedTeamsStatCard({ selectedTeams, onClear }) {
+  const none = selectedTeams.length === 0;
+
+  return (
+    <div className="group relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-all w-[300px]">
+      {/* same top gradient ribbon as KPI cards */}
+      <div className="pointer-events-none absolute inset-x-0 -top-1 h-1 bg-gradient-to-r from-sky-500/20 to-indigo-500/20" />
+
+      <div className="flex items-start gap-4">
+        <Icon
+          kind="filter"
+          className="h-10 w-10 rounded-xl bg-gray-50 p-2 text-gray-700 group-hover:scale-105 transition-transform"
+        />
+
+        <div className="min-w-0 flex-1">
+          <div className="text-sm text-gray-500">Selected Teams</div>
+
+          {/* Headline mirrors KPI number line */}
+          <div className="mt-1 text-2xl font-bold text-gray-900">
+            {none ? "All teams" : `${selectedTeams.length} selected`}
+          </div>
+
+          {/* Chips / clear */}
+          <div className="mt-2 flex items-center gap-2">
+            {none ? (
+              <span className="text-xs text-gray-500">No filter</span>
+            ) : (
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+                {selectedTeams.map((t) => (
+                  <span
+                    key={t}
+                    title={t}
+                    className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-800 whitespace-nowrap"
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {!none && (
+              <button
+                type="button"
+                onClick={onClear}
+                className="ml-auto rounded-lg border px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Small helpers / presentational bits ---------- */
 function StatCard({ title, value, accent = "from-gray-200 to-gray-100", icon = "dot" }) {
   return (
     <div className="group relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-all">
-      {/* soft top accent */}
       <div className={`pointer-events-none absolute inset-x-0 -top-1 h-1 bg-gradient-to-r ${accent}`} />
       <div className="flex items-center gap-4">
         <Icon kind={icon} className="h-10 w-10 rounded-xl bg-gray-50 p-2 text-gray-700 group-hover:scale-105 transition-transform" />
@@ -674,7 +847,7 @@ function NiceTooltip({ active, payload, label }) {
   );
 }
 
-/* SVG icons (no extra dependency) */
+/* SVG icons */
 function Icon({ kind, className }) {
   switch (kind) {
     case "users":
@@ -701,12 +874,18 @@ function Icon({ kind, className }) {
           <path d="M12 2a10 10 0 1 0 10 10A10.011 10.011 0 0 0 12 2m1 11h5v-2h-4V6h-2z" />
         </svg>
       );
+    case "filter":
+      return (
+        <svg viewBox="0 0 24 24" className={className} fill="currentColor">
+          <path d="M10 18h4v-2h-4v2m-7-8v2h18v-2H3m3-6v2h12V4H6Z" />
+        </svg>
+      );
     default:
       return <span className={className} />;
   }
 }
 
-/* Gradient defs reused by charts */
+/* Gradients for charts */
 function ChartGradients() {
   return (
     <svg width="0" height="0">
@@ -731,3 +910,5 @@ function ChartGradients() {
     </svg>
   );
 }
+
+
