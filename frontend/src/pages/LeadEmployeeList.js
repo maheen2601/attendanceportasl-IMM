@@ -275,7 +275,7 @@ const HEADERS = [
   "Check-out",
   "Hours",
   "Status",
-  "Join Date",
+  "Date",
   "Actions",
 ];
 
@@ -648,4 +648,5 @@ function EmployeeList() {
 }
 
 export default EmployeeList;
+
 
