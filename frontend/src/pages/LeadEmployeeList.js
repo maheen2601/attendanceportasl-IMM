@@ -205,7 +205,7 @@
 //                   <td className="border px-4 py-2">{emp.leave_balance ?? "-"}</td>
 //                   <td className="border px-4 py-2">{emp.wfh_count}</td>
 //                   <td className="border px-4 py-2">{emp.onsite_count}</td>
-//                   <td className="border px-4 py-2">{emp.join_date || "-"}</td>
+//                  <td className="border px-4 py-2">  {isSingleDay ? fromDate : "—"}</td>
 //                   <td className="border px-4 py-2">
 //                     <button
 //                       onClick={() => confirmDelete(emp.id)}
@@ -648,3 +648,4 @@ function EmployeeList() {
 }
 
 export default EmployeeList;
+
