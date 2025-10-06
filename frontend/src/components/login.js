@@ -243,7 +243,6 @@
 //   );
 // }
 
-
 import React, { useState } from "react";
 import { FaUser, FaLock, FaEye, FaEyeSlash } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
@@ -255,11 +254,12 @@ import "./Login.css";
 
 function extractApiError(err) {
   if (!err?.response) return `Network error. Can’t reach API at ${API_BASE}.`;
-  const { status, data } = err.response;
+  const { status, data } = err.response || {};
   if (typeof data === "string") return data;
   if (data?.detail) return data.detail;
   if (data?.message) return data.message;
-  if (Array.isArray(data?.non_field_errors) && data.non_field_errors.length) return data.non_field_errors[0];
+  if (Array.isArray(data?.non_field_errors) && data.non_field_errors.length)
+    return data.non_field_errors[0];
   const parts = [];
   for (const [k, v] of Object.entries(data || {})) {
     if (Array.isArray(v)) parts.push(`${k}: ${v.join(" ")}`);
@@ -281,13 +281,14 @@ export default function Login({ onLogin }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
+
     setErrorMessage("");
     setLoading(true);
-    clearAuthTokens(); // wipe stale tokens
+    clearAuthTokens();
     localStorage.removeItem("role");
 
     try {
-      // IMPORTANT: relative path – api baseURL decides domain
+      // NOTE: relative path; baseURL comes from ../lib/api
       const res = await api.post("/login/", { username, password, role });
 
       const access  = res.data?.access;
@@ -299,12 +300,10 @@ export default function Login({ onLogin }) {
         res.data?.role ?? (res.data?.is_staff ? "admin" : res.data?.is_team_lead ? "lead" : "employee");
       localStorage.setItem("role", serverRole);
 
-      if (typeof res.data?.is_team_lead !== "undefined") {
+      if (typeof res.data?.is_team_lead !== "undefined")
         localStorage.setItem("is_team_lead", String(res.data.is_team_lead));
-      }
-      if (Array.isArray(res.data?.lead_teams)) {
+      if (Array.isArray(res.data?.lead_teams))
         localStorage.setItem("lead_teams", JSON.stringify(res.data.lead_teams));
-      }
 
       onLogin?.(serverRole);
       navigate(
@@ -346,11 +345,9 @@ export default function Login({ onLogin }) {
       <div className="relative min-h-screen flex items-center justify-center p-6 pt-24 z-10">
         <div className="bg-white/85 backdrop-blur rounded-xl shadow-xl overflow-hidden w-full max-w-5xl border border-white/40">
           <div className="w-full md:flex">
-            {/* Left: Login Form */}
             <div className="w-full md:w-1/2 p-8">
               <h2 className="text-2xl font-bold text-center mb-2">Login</h2>
 
-              {/* Role Toggle */}
               <div className="flex flex-wrap justify-center gap-3 mb-6">
                 <button
                   type="button"
@@ -365,8 +362,6 @@ export default function Login({ onLogin }) {
                 >
                   Admin
                 </button>
-
-                
 
                 <button
                   type="button"
@@ -396,7 +391,6 @@ export default function Login({ onLogin }) {
                 </button>
               </div>
 
-              {/* Error banner */}
               {errorMessage && (
                 <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-700 text-sm flex justify-between items-start">
                   <div>{errorMessage}</div>
@@ -410,7 +404,6 @@ export default function Login({ onLogin }) {
               )}
 
               <form onSubmit={handleSubmit}>
-                {/* Username */}
                 <div className="relative mb-4">
                   <FaUser className="absolute left-3 top-3 text-gray-400" />
                   <input
@@ -425,7 +418,6 @@ export default function Login({ onLogin }) {
                   />
                 </div>
 
-                {/* Password */}
                 <div className="relative mb-4">
                   <FaLock className="absolute left-3 top-3 text-gray-400" />
                   <input
@@ -479,7 +471,6 @@ export default function Login({ onLogin }) {
               </form>
             </div>
 
-            {/* Right: Illustration */}
             <div className="hidden md:flex items-center justify-center md:w-1/2 bg-gray-50">
               <Player autoplay loop src="https://assets6.lottiefiles.com/packages/lf20_jcikwtux.json" style={{ height: 360, width: 360 }} />
             </div>
@@ -489,6 +480,3 @@ export default function Login({ onLogin }) {
     </>
   );
 }
-
-export default Login;
-
