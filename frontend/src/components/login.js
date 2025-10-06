@@ -248,38 +248,33 @@
 // export default Login;
 
 import React, { useState } from "react";
-import axios from "axios";
 import { FaUser, FaLock, FaEye, FaEyeSlash } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import { Player } from "@lottiefiles/react-lottie-player";
 import { toast } from "react-toastify";
 import BubbleBackground from "../components/BubbleBackground";
+import api, { API_BASE, setAuthTokens, clearAuthTokens } from "../lib/api";
 import "./Login.css";
 
-// Normalize DRF/SimpleJWT error shapes
 function extractApiError(err) {
-  if (!err?.response) return "Network error. Is the API running at 127.0.0.1:8000?";
+  if (!err?.response) return `Network error. Can’t reach API at ${API_BASE}.`;
   const { status, data } = err.response;
   if (typeof data === "string") return data;
   if (data?.detail) return data.detail;
   if (data?.message) return data.message;
-  if (Array.isArray(data?.non_field_errors) && data.non_field_errors.length) {
-    return data.non_field_errors[0];
-  }
+  if (Array.isArray(data?.non_field_errors) && data.non_field_errors.length) return data.non_field_errors[0];
   const parts = [];
   for (const [k, v] of Object.entries(data || {})) {
     if (Array.isArray(v)) parts.push(`${k}: ${v.join(" ")}`);
     else if (typeof v === "string") parts.push(`${k}: ${v}`);
   }
-  if (parts.length) return parts.join(" | ");
-  return `Request failed (${status}).`;
+  return parts.length ? parts.join(" | ") : `Request failed (${status ?? "unknown"}).`;
 }
 
-function Login({ onLogin }) {
+export default function Login({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  // admin | employee | lead
-  const [role, setRole] = useState("admin");
+  const [role, setRole] = useState("admin"); // admin | lead | employee
   const [errorMessage, setErrorMessage] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotMessage, setShowForgotMessage] = useState(false);
@@ -291,25 +286,22 @@ function Login({ onLogin }) {
     if (loading) return;
     setErrorMessage("");
     setLoading(true);
-
-    // wipe stale tokens first
-    localStorage.clear();
+    clearAuthTokens(); // wipe stale tokens
+    localStorage.removeItem("role");
 
     try {
-      const res = await axios.post(
-        "http://127.0.0.1:8000/api/login/",
-        { username, password, role },
-        { headers: { "Content-Type": "application/json" } }
-      );
+      // IMPORTANT: relative path – api baseURL decides domain
+      const res = await api.post("/login/", { username, password, role });
 
-      // Trust the server's decision on role
-      const serverRole = res.data?.role ?? (res.data?.is_staff ? "admin" : "employee");
+      const access  = res.data?.access;
+      const refresh = res.data?.refresh;
+      if (!access || !refresh) throw new Error("Login response missing tokens.");
+      setAuthTokens({ access, refresh });
 
-      localStorage.setItem("access", res.data.access);
-      localStorage.setItem("refresh", res.data.refresh);
+      const serverRole =
+        res.data?.role ?? (res.data?.is_staff ? "admin" : res.data?.is_team_lead ? "lead" : "employee");
       localStorage.setItem("role", serverRole);
 
-      // handy extras for lead UI
       if (typeof res.data?.is_team_lead !== "undefined") {
         localStorage.setItem("is_team_lead", String(res.data.is_team_lead));
       }
@@ -317,29 +309,22 @@ function Login({ onLogin }) {
         localStorage.setItem("lead_teams", JSON.stringify(res.data.lead_teams));
       }
 
-      // tell parent (state sync), then route *including lead*
       onLogin?.(serverRole);
-
-      if (serverRole === "admin") {
-        navigate("/admin-dashboard", { replace: true });
-      } else if (serverRole === "lead") {
-        navigate("/lead-dashboard", { replace: true });
-      } else {
-        navigate("/employee-dashboard", { replace: true });
-      }
-
+      navigate(
+        serverRole === "admin"
+          ? "/admin-dashboard"
+          : serverRole === "lead"
+          ? "/lead-dashboard"
+          : "/employee-dashboard",
+        { replace: true }
+      );
       toast.success("Logged in ✅");
     } catch (error) {
       const raw = extractApiError(error);
       const msg =
         /invalid/i.test(raw) || /no active account/i.test(raw)
           ? "Invalid username or password."
-          : /not a team lead/i.test(raw)
-          ? "This account is not a Team Lead."
-          : /authorized as admin/i.test(raw)
-          ? "This account is not allowed to log in as Admin."
           : raw;
-
       setErrorMessage(msg);
       toast.error(msg);
       console.warn("Login failed:", msg);
