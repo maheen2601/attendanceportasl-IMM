@@ -225,107 +225,107 @@ from .views import (
 )
 
 
-# urlpatterns = [
-#     # -------- Auth
-#     path("login/",   CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
-#     path("refresh/", TokenRefreshView.as_view(),          name="token_refresh"),
-
-#     # --- Employee (self)
-#     path("me/profile/",                 views.me_profile,                name="me_profile"),
-#     path("me/dashboard/",               views.me_dashboard,              name="me_dashboard"),
-#     path("me/attendance/",              views.my_attendance,             name="my_attendance"),
-#     path("me/attendance/today/",        views.my_attendance_today,       name="my_attendance_today"),
-#     path("me/attendance/check-in/",     views.check_in,                  name="check_in"),
-#     path("me/attendance/check-out/",    views.check_out,                 name="check_out"),
-#     # expose both paths to match your UI calls
-#     path("pre-notice/late/",            views.pre_notify_late,           name="pre_notify_late"),        # /api/pre-notice/late/
-#     path("me/attendance/pre-notice/late/", views.pre_notify_late,       name="pre_notify_late_alt"),     # /api/me/attendance/pre-notice/late/
-#     path("me/attendance/corrections/",  views.my_attendance_corrections, name="my_attendance_corrections"),
-#     path("me/leaves/",                  views.my_leaves,                 name="my_leaves"),
-#     path("me/leaves/<int:pk>/",         views.my_leave_cancel,           name="my_leave_cancel"),
-#     path("me/leave-distribution/",      views.get_leave_distribution,    name="leave_distribution"),
-
-#     # -------- Admin: employees  (👈 these match your React page)
-#     path("admin/employees/",            EmployeeListAPIView.as_view(),   name="admin_employee_list"),
-#     path("admin/employees/create/",     CreateEmployeeAPIView.as_view(), name="admin_employee_create"),
-#     path("admin/employees/<int:pk>/",   DeleteEmployeeAPIView.as_view(), name="admin_employee_delete"),
-
-#     # -------- Admin: leave approvals
-#     path("leave-requests/",             LeaveRequestAdminList.as_view(),   name="leave_requests"),
-#     path("leave-requests/<int:pk>/",    LeaveRequestAdminUpdate.as_view(), name="leave_request_update"),
-
-#     # -------- Admin: time corrections
-#     path("attendance-corrections/",          AttendanceCorrectionAdminList.as_view(),   name="attendance_correction_admin_list"),
-#     path("attendance-corrections/<int:pk>/", AttendanceCorrectionAdminUpdate.as_view(), name="attendance_correction_admin_update"),
-
-#     # -------- Early-off + policy + stats
-#     path("me/earlyoff/",               earlyoff_list_create, name="earlyoff_list_create"),  # employee self
-#     path("admin/earlyoff/",            earlyoff_admin_list, name="earlyoff_admin_list"),
-#     path("admin/earlyoff/<int:pk>/",   earlyoff_update,     name="earlyoff_update"),
-#     path("policy/",                    policy_settings_get, name="policy_get"),
-#     path("admin/stats/",               dashboard_stats,     name="dashboard_stats"),
-#     path("dashboard-stats/", views.dashboard_stats, name="dashboard-stats"),
-#     path("leave-requests/<int:pk>/", views.LeaveRequestAdminUpdate.as_view()),
-#     path("me/attendance/today/", views.my_attendance_today, name="my-attendance-today"),
-#     # your existing list/range endpoint:
-#     path("me/attendance/", views.my_attendance, name="my-attendance"),
-#     # your existing list/range endpoint:
-#     path("me/attendance/", views.my_attendance, name="my-attendance"),
-#     path("admin/teams/", team_list, name="admin_team_list"),
-#     # lead endpoints
-#     path("admin/teams/", team_list, name="admin_team_list"),
-#     path("lead/leave-requests/", lead_leave_list, name="lead_leave_list"),
-#     path("lead/leave-requests/<int:pk>/", lead_leave_update, name="lead_leave_update"),
-
-
-#     path("admin/employees/", admin_employees, name="admin_employees"),
-#     path("lead/employees/", lead_employees, name="lead_employees"),
-# ]
-
-
 urlpatterns = [
-   path("login/",   CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
+    # -------- Auth
+    path("login/",   CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("refresh/", TokenRefreshView.as_view(),          name="token_refresh"),
 
-    # ---- Current user (employee self-service)
-    path("me/profile/",                  views.me_profile,                name="me_profile"),
-    path("me/dashboard/",                views.me_dashboard,              name="me_dashboard"),
-    path("me/attendance/",               views.my_attendance,             name="my_attendance"),
-    path("me/attendance/today/",         views.my_attendance_today,       name="my_attendance_today"),
-    path("me/attendance/check-in/",      views.check_in,                  name="check_in"),
-    path("me/attendance/check-out/",     views.check_out,                 name="check_out"),
-    path("pre-notice/late/",             views.pre_notify_late,           name="pre_notify_late"),  # kept short path
-    path("me/attendance/corrections/",   views.my_attendance_corrections, name="my_attendance_corrections"),
-    path("me/leaves/",                   views.my_leaves,                 name="my_leaves"),
-    path("me/leaves/<int:pk>/",          views.my_leave_cancel,           name="my_leave_cancel"),
-    path("me/earlyoff/",                 views.earlyoff_list_create,      name="earlyoff_list_create"),
-    path("me/leave-distribution/",       views.get_leave_distribution,    name="leave_distribution"),
+    # --- Employee (self)
+    path("me/profile/",                 views.me_profile,                name="me_profile"),
+    path("me/dashboard/",               views.me_dashboard,              name="me_dashboard"),
+    path("me/attendance/",              views.my_attendance,             name="my_attendance"),
+    path("me/attendance/today/",        views.my_attendance_today,       name="my_attendance_today"),
+    path("me/attendance/check-in/",     views.check_in,                  name="check_in"),
+    path("me/attendance/check-out/",    views.check_out,                 name="check_out"),
+    # expose both paths to match your UI calls
+    path("pre-notice/late/",            views.pre_notify_late,           name="pre_notify_late"),        # /api/pre-notice/late/
+    path("me/attendance/pre-notice/late/", views.pre_notify_late,       name="pre_notify_late_alt"),     # /api/me/attendance/pre-notice/late/
+    path("me/attendance/corrections/",  views.my_attendance_corrections, name="my_attendance_corrections"),
+    path("me/leaves/",                  views.my_leaves,                 name="my_leaves"),
+    path("me/leaves/<int:pk>/",         views.my_leave_cancel,           name="my_leave_cancel"),
+    path("me/leave-distribution/",      views.get_leave_distribution,    name="leave_distribution"),
 
-    # ---- Admin – employees (used by your Employees & AddEmployee pages)
-    path("admin/employees/",             views.EmployeeListAPIView.as_view(),   name="admin_employee_list"),
-    path("admin/employees/create/",      views.CreateEmployeeAPIView.as_view(), name="admin_employee_create"),
-    path("admin/employees/<int:pk>/",    views.DeleteEmployeeAPIView.as_view(), name="admin_employee_delete"),
+    # -------- Admin: employees  (👈 these match your React page)
+    path("admin/employees/",            EmployeeListAPIView.as_view(),   name="admin_employee_list"),
+    path("admin/employees/create/",     CreateEmployeeAPIView.as_view(), name="admin_employee_create"),
+    path("admin/employees/<int:pk>/",   DeleteEmployeeAPIView.as_view(), name="admin_employee_delete"),
 
-    # ---- Admin – teams list (consumed by AddEmployee TeamSelect)
-    path("admin/teams/",                 views.team_list,                 name="admin_team_list"),
+    # -------- Admin: leave approvals
+    path("leave-requests/",             LeaveRequestAdminList.as_view(),   name="leave_requests"),
+    path("leave-requests/<int:pk>/",    LeaveRequestAdminUpdate.as_view(), name="leave_request_update"),
 
-    # ---- Admin – leave approvals
-    path("leave-requests/",              views.LeaveRequestAdminList.as_view(),   name="leave_requests"),
-    path("leave-requests/<int:pk>/",     views.LeaveRequestAdminUpdate.as_view(), name="leave_request_update"),
+    # -------- Admin: time corrections
+    path("attendance-corrections/",          AttendanceCorrectionAdminList.as_view(),   name="attendance_correction_admin_list"),
+    path("attendance-corrections/<int:pk>/", AttendanceCorrectionAdminUpdate.as_view(), name="attendance_correction_admin_update"),
 
-    # ---- Admin – time corrections
-    path("attendance-corrections/",          views.AttendanceCorrectionAdminList.as_view(),   name="attendance_correction_admin_list"),
-    path("attendance-corrections/<int:pk>/", views.AttendanceCorrectionAdminUpdate.as_view(), name="attendance_correction_admin_update"),
+    # -------- Early-off + policy + stats
+    path("me/earlyoff/",               earlyoff_list_create, name="earlyoff_list_create"),  # employee self
+    path("admin/earlyoff/",            earlyoff_admin_list, name="earlyoff_admin_list"),
+    path("admin/earlyoff/<int:pk>/",   earlyoff_update,     name="earlyoff_update"),
+    path("policy/",                    policy_settings_get, name="policy_get"),
+    path("admin/stats/",               dashboard_stats,     name="dashboard_stats"),
+    path("dashboard-stats/", views.dashboard_stats, name="dashboard-stats"),
+    path("leave-requests/<int:pk>/", views.LeaveRequestAdminUpdate.as_view()),
+    path("me/attendance/today/", views.my_attendance_today, name="my-attendance-today"),
+    # your existing list/range endpoint:
+    path("me/attendance/", views.my_attendance, name="my-attendance"),
+    # your existing list/range endpoint:
+    path("me/attendance/", views.my_attendance, name="my-attendance"),
+    path("admin/teams/", team_list, name="admin_team_list"),
+    # lead endpoints
+    # path("admin/teams/", team_list, name="admin_team_list"),
+    path("lead/leave-requests/", lead_leave_list, name="lead_leave_list"),
+    path("lead/leave-requests/<int:pk>/", lead_leave_update, name="lead_leave_update"),
 
-    # ---- Stats / Policy
-    path("policy/",                     views.policy_settings_get,        name="policy_get"),
-    path("admin/stats/",                views.dashboard_stats,            name="dashboard_stats"),
 
-    # ---- Lead queue (your LeadLeaveRequests page)
-    path("lead/leave-requests/",        views.lead_leave_list,            name="lead_leave_list"),
-    path("lead/leave-requests/<int:pk>/", views.lead_leave_update,        name="lead_leave_update"),
-
-    # (Optional convenience list endpoints – if you really need both)
-    path("admin/employees/", views.admin_employees, name="admin_employees"),
-    path("lead/employees/",  views.lead_employees,  name="lead_employees"),
+    path("admin/employees/", admin_employees, name="admin_employees"),
+    path("lead/employees/", lead_employees, name="lead_employees"),
 ]
+
+
+# urlpatterns = [
+#    path("login/",   CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
+#     path("refresh/", TokenRefreshView.as_view(),          name="token_refresh"),
+
+#     # ---- Current user (employee self-service)
+#     path("me/profile/",                  views.me_profile,                name="me_profile"),
+#     path("me/dashboard/",                views.me_dashboard,              name="me_dashboard"),
+#     path("me/attendance/",               views.my_attendance,             name="my_attendance"),
+#     path("me/attendance/today/",         views.my_attendance_today,       name="my_attendance_today"),
+#     path("me/attendance/check-in/",      views.check_in,                  name="check_in"),
+#     path("me/attendance/check-out/",     views.check_out,                 name="check_out"),
+#     path("pre-notice/late/",             views.pre_notify_late,           name="pre_notify_late"),  # kept short path
+#     path("me/attendance/corrections/",   views.my_attendance_corrections, name="my_attendance_corrections"),
+#     path("me/leaves/",                   views.my_leaves,                 name="my_leaves"),
+#     path("me/leaves/<int:pk>/",          views.my_leave_cancel,           name="my_leave_cancel"),
+#     path("me/earlyoff/",                 views.earlyoff_list_create,      name="earlyoff_list_create"),
+#     path("me/leave-distribution/",       views.get_leave_distribution,    name="leave_distribution"),
+
+#     # ---- Admin – employees (used by your Employees & AddEmployee pages)
+#     path("admin/employees/",             views.EmployeeListAPIView.as_view(),   name="admin_employee_list"),
+#     path("admin/employees/create/",      views.CreateEmployeeAPIView.as_view(), name="admin_employee_create"),
+#     path("admin/employees/<int:pk>/",    views.DeleteEmployeeAPIView.as_view(), name="admin_employee_delete"),
+
+#     # ---- Admin – teams list (consumed by AddEmployee TeamSelect)
+#     path("admin/teams/",                 views.team_list,                 name="admin_team_list"),
+
+#     # ---- Admin – leave approvals
+#     path("leave-requests/",              views.LeaveRequestAdminList.as_view(),   name="leave_requests"),
+#     path("leave-requests/<int:pk>/",     views.LeaveRequestAdminUpdate.as_view(), name="leave_request_update"),
+
+#     # ---- Admin – time corrections
+#     path("attendance-corrections/",          views.AttendanceCorrectionAdminList.as_view(),   name="attendance_correction_admin_list"),
+#     path("attendance-corrections/<int:pk>/", views.AttendanceCorrectionAdminUpdate.as_view(), name="attendance_correction_admin_update"),
+
+#     # ---- Stats / Policy
+#     path("policy/",                     views.policy_settings_get,        name="policy_get"),
+#     path("admin/stats/",                views.dashboard_stats,            name="dashboard_stats"),
+
+#     # ---- Lead queue (your LeadLeaveRequests page)
+#     path("lead/leave-requests/",        views.lead_leave_list,            name="lead_leave_list"),
+#     path("lead/leave-requests/<int:pk>/", views.lead_leave_update,        name="lead_leave_update"),
+
+#     # (Optional convenience list endpoints – if you really need both)
+#     path("admin/employees/", views.admin_employees, name="admin_employees"),
+#     path("lead/employees/",  views.lead_employees,  name="lead_employees"),
+# ]
