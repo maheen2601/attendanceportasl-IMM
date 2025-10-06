@@ -227,7 +227,6 @@
 // }
 
 // export default EmployeeList;
-
 // src/pages/Employees.js
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../utils/axiosInstance";
@@ -294,6 +293,14 @@ function AdminEmployees() {
 
   const isSingleDay = fromDate && toDate && fromDate === toDate;
 
+  // ✅ Default both dates to *local* today (not UTC)
+  useEffect(() => {
+    const today = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in local tz
+    if (!fromDate) setFromDate(today);
+    if (!toDate) setToDate(today);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const fetchEmployees = async () => {
     setLoading(true);
     setErr("");
@@ -318,7 +325,7 @@ function AdminEmployees() {
         const onsite_count = e.onsite_count ?? e.onsite ?? 0;
 
         // Range/day fields from backend
-        const avg_work_minutes = e.avg_work_minutes ?? null; // kept for top overall bar
+        const avg_work_minutes = e.avg_work_minutes ?? null; // for overall bar
         const checkin_time = e.checkin_time ?? null;         // single-day only
         const checkout_time = e.checkout_time ?? null;       // single-day only
         const work_minutes = e.work_minutes ?? null;         // single-day only
@@ -360,14 +367,6 @@ function AdminEmployees() {
       setLoading(false);
     }
   };
-
-  // Default to today so day columns work out-of-the-box
-  useEffect(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    if (!fromDate) setFromDate(today);
-    if (!toDate) setToDate(today);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Refetch on date change
   useEffect(() => {
@@ -414,7 +413,7 @@ function AdminEmployees() {
     [fromDate, toDate]
   );
 
-  // 🔝 Overall totals for the bar (kept)
+  // 🔝 Overall totals for the bar
   const { overallTotalMinutes, overallCapacityMinutes } = useMemo(() => {
     const considered = filteredEmployees.filter(
       (e) => e.avg_work_minutes != null && !isNaN(e.avg_work_minutes)
@@ -613,5 +612,3 @@ function AdminEmployees() {
 }
 
 export default AdminEmployees;
-
-
