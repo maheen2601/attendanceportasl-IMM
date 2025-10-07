@@ -256,7 +256,6 @@
 
 // export default EmployeeList;
 
-
 // src/pages/Employees.js
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../utils/axiosInstance";
@@ -313,6 +312,8 @@ function countWorkingDays(fromStr, toStr) {
 function EmployeeList() {
   const [employees, setEmployees] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [leadFilter, setLeadFilter] = useState("");   // 🔹 NEW
+  const [teamFilter, setTeamFilter] = useState("");   // 🔹 NEW
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -329,6 +330,10 @@ function EmployeeList() {
       const params = new URLSearchParams();
       if (fromDate) params.append("from", fromDate);
       if (toDate) params.append("to", toDate);
+      // optional server-side filters if supported:
+      if (leadFilter) params.append("lead", leadFilter);
+      if (teamFilter) params.append("team", teamFilter);
+
       const url = `admin/employees/${params.toString() ? `?${params.toString()}` : ""}`;
 
       const { data } = await api.get(url);
@@ -338,9 +343,9 @@ function EmployeeList() {
         const username = e.username ?? e.user?.username ?? "";
         const email = e.email ?? e.user?.email ?? "";
         const team =
-          e.team_name ??
-          (typeof e.team === "string" ? e.team : e.team?.name) ??
-          "";
+          (e.team_name ??
+            (typeof e.team === "string" ? e.team : e.team?.name) ??
+            "")?.trim();
 
         // counts
         const wfh_count = Number(e.wfh_count ?? e.wfh ?? 0);
@@ -401,11 +406,11 @@ function EmployeeList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // refetch whenever dates change (after they are both set)
+  // refetch whenever dates / filters change (after both dates are set)
   useEffect(() => {
     if (fromDate && toDate) fetchEmployees();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, leadFilter, teamFilter]);
 
   const confirmDelete = (id) => {
     setEmployeeToDelete(id);
@@ -429,17 +434,72 @@ function EmployeeList() {
     }
   };
 
-  // search
+  // Distinct leads (for the Lead dropdown)
+  const allLeads = useMemo(() => {
+    const s = new Set();
+    for (const e of employees) {
+      (e.team_leads || []).forEach((name) => {
+        const n = (name || "").trim();
+        if (n) s.add(n);
+      });
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [employees]);
+
+  // Distinct teams overall and restricted by selected lead
+  const teamOptionsForLead = useMemo(() => {
+    const s = new Set();
+    for (const e of employees) {
+      const t = (e.team || "").trim();
+      if (!t) continue;
+      if (!leadFilter) {
+        s.add(t);
+      } else {
+        const leads = e.team_leads || [];
+        if (leads.map((x) => (x || "").trim()).includes(leadFilter.trim())) {
+          s.add(t);
+        }
+      }
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [employees, leadFilter]);
+
+  // If user switches the lead and the current team is no longer valid for that lead, clear it
+  useEffect(() => {
+    if (teamFilter && !teamOptionsForLead.includes(teamFilter)) {
+      setTeamFilter("");
+    }
+  }, [teamOptionsForLead, teamFilter]);
+
+  // search + lead + team filter (client-side safety even if server ignores params)
   const q = searchTerm.trim().toLowerCase();
   const filteredEmployees = useMemo(() => {
     return employees.filter((emp) => {
+      // Lead filter
+      const leadOK = leadFilter
+        ? (emp.team_leads || [])
+            .map((n) => (n || "").trim().toLowerCase())
+            .includes(leadFilter.trim().toLowerCase())
+        : true;
+
+      if (!leadOK) return false;
+
+      // Team filter (restricted options already handled above)
+      const teamOK = teamFilter
+        ? (emp.team || "").trim().toLowerCase() === teamFilter.trim().toLowerCase()
+        : true;
+
+      if (!teamOK) return false;
+
+      // Search filter
+      if (!q) return true;
       const u = (emp.username || "").toLowerCase();
       const m = (emp.email || "").toLowerCase();
       const t = (emp.team || "").toLowerCase();
       const leads = (emp.team_leads || []).join(", ").toLowerCase();
       return u.includes(q) || m.includes(q) || t.includes(q) || leads.includes(q);
     });
-  }, [employees, q]);
+  }, [employees, q, leadFilter, teamFilter]);
 
   // top overall bar: sum(avg per day * days) vs capacity (days * 8h * people)
   const workingDays = useMemo(
@@ -515,10 +575,41 @@ function EmployeeList() {
             onChange={(e) => setToDate(e.target.value)}
           />
         </div>
+
+        {/* 🔹 Lead filter */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">Lead</label>
+          <select
+            className="border px-3 py-2 rounded min-w-[12rem]"
+            value={leadFilter}
+            onChange={(e) => setLeadFilter(e.target.value)}
+          >
+            <option value="">All leads</option>
+            {allLeads.map((name) => (
+              <option key={name} value={name}>{name}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* 🔹 Team filter (depends on selected lead) */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">Team</label>
+          <select
+            className="border px-3 py-2 rounded min-w-[12rem]"
+            value={teamFilter}
+            onChange={(e) => setTeamFilter(e.target.value)}
+          >
+            <option value="">All teams</option>
+            {teamOptionsForLead.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+
         <button
           onClick={fetchEmployees}
           className="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-700 text-white"
-          title="Apply date range"
+          title="Apply filters"
         >
           Apply
         </button>
@@ -603,10 +694,10 @@ function EmployeeList() {
 
                   <td className="border px-4 py-2">{statusChip}</td>
                   <td className="border px-4 py-2">
-   {fromDate && toDate
-     ? (fromDate === toDate ? fromDate : `${fromDate} → ${toDate}`)
-     : "—"}
- </td>
+                    {fromDate && toDate
+                      ? (fromDate === toDate ? fromDate : `${fromDate} → ${toDate}`)
+                      : "—"}
+                  </td>
                   <td className="border px-4 py-2">
                     <button
                       onClick={() => confirmDelete(emp.id)}
@@ -652,6 +743,3 @@ function EmployeeList() {
 }
 
 export default EmployeeList;
-
-
-
