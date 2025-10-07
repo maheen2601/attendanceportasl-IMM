@@ -232,6 +232,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import api from "../utils/axiosInstance";
 import { toast } from "react-toastify";
 
+const TEAM_OPTIONS = [
+  "TCP", "The News", "Hungama", "Jang",
+  "Celeb In Box", "Gad Insider", "Gossip Herald",
+  "Geo", "SEO", "Data", "Social",
+];
+
 const HEADERS = [
   "Username",
   "Email",
@@ -284,6 +290,7 @@ function countWorkingDays(fromStr, toStr) {
 function AdminEmployees() {
   const [employees, setEmployees] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [teamFilter, setTeamFilter] = useState(""); // 🔹 NEW
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -308,6 +315,7 @@ function AdminEmployees() {
       const params = new URLSearchParams();
       if (fromDate) params.append("from", fromDate);
       if (toDate) params.append("to", toDate);
+      if (teamFilter) params.append("team", teamFilter); // 🔹 pass to backend if supported
       const url = `admin/employees/${params.toString() ? `?${params.toString()}` : ""}`;
 
       const { data } = await api.get(url);
@@ -316,10 +324,11 @@ function AdminEmployees() {
       const normalized = list.map((e) => {
         const username = e.username ?? e.user?.username ?? "";
         const email = e.email ?? e.user?.email ?? "";
-        const team =
+        const teamRaw =
           e.team_name ??
           (typeof e.team === "string" ? e.team : e.team?.name) ??
           "";
+        const team = teamRaw.trim(); // normalize whitespace
 
         const wfh_count = e.wfh_count ?? e.wfh ?? 0;
         const onsite_count = e.onsite_count ?? e.onsite ?? 0;
@@ -368,11 +377,11 @@ function AdminEmployees() {
     }
   };
 
-  // Refetch on date change
+  // Refetch on date or team change
   useEffect(() => {
     if (fromDate && toDate) fetchEmployees();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromDate, toDate]);
+  }, [fromDate, toDate, teamFilter]); // 🔹 include teamFilter
 
   const confirmDelete = (id) => {
     setEmployeeToDelete(id);
@@ -394,18 +403,25 @@ function AdminEmployees() {
     }
   };
 
-  // Filter by search
+  // Search + Team filter (client-side)
   const filteredEmployees = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
-    if (!q) return employees;
     return employees.filter((emp) => {
+      // team filter
+      const teamOk = teamFilter
+        ? (emp.team || "").trim().toLowerCase() === teamFilter.toLowerCase()
+        : true;
+
+      if (!teamOk) return false;
+
+      if (!q) return true;
       const u = (emp.username || "").toLowerCase();
       const m = (emp.email || "").toLowerCase();
       const t = (emp.team || "").toLowerCase();
       const leads = (emp.team_leads || []).join(", ").toLowerCase();
       return u.includes(q) || m.includes(q) || t.includes(q) || leads.includes(q);
     });
-  }, [employees, searchTerm]);
+  }, [employees, searchTerm, teamFilter]);
 
   // Working days in selected range
   const workingDays = useMemo(
@@ -482,10 +498,26 @@ function AdminEmployees() {
             onChange={(e) => setToDate(e.target.value)}
           />
         </div>
+
+        {/* 🔹 Team filter */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">Team</label>
+          <select
+            className="border px-3 py-2 rounded min-w-[12rem]"
+            value={teamFilter}
+            onChange={(e) => setTeamFilter(e.target.value)}
+          >
+            <option value="">All teams</option>
+            {TEAM_OPTIONS.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </div>
+
         <button
           onClick={fetchEmployees}
           className="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-700 text-white"
-          title="Apply date range"
+          title="Apply filters"
         >
           Apply
         </button>
