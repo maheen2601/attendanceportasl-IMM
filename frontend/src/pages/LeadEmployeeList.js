@@ -577,19 +577,19 @@ function EmployeeList() {
         </div>
 
         {/* 🔹 Lead filter */}
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-600">Lead</label>
-          <select
-            className="border px-3 py-2 rounded min-w-[12rem]"
-            value={leadFilter}
-            onChange={(e) => setLeadFilter(e.target.value)}
-          >
-            <option value="">All leads</option>
-            {allLeads.map((name) => (
-              <option key={name} value={name}>{name}</option>
-            ))}
-          </select>
-        </div>
+        // <div className="flex items-center gap-2">
+        //   <label className="text-sm text-gray-600">Lead</label>
+        //   <select
+        //     className="border px-3 py-2 rounded min-w-[12rem]"
+        //     value={leadFilter}
+        //     onChange={(e) => setLeadFilter(e.target.value)}
+        //   >
+        //     <option value="">All leads</option>
+        //     {allLeads.map((name) => (
+        //       <option key={name} value={name}>{name}</option>
+        //     ))}
+        //   </select>
+        // </div>
 
         {/* 🔹 Team filter (depends on selected lead) */}
         <div className="flex items-center gap-2">
@@ -743,3 +743,4 @@ function EmployeeList() {
 }
 
 export default EmployeeList;
+
