@@ -227,7 +227,6 @@
 // }
 
 // export default EmployeeList;
-// src/pages/Employees.js
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../utils/axiosInstance";
 import { toast } from "react-toastify";
@@ -255,8 +254,9 @@ const HEADERS = [
   "Actions",
 ];
 
-const DAILY_TARGET_MINUTES = 8 * 60; // used for overall capacity bar
+const DAILY_TARGET_MINUTES = 8 * 60;
 
+/* ---------- small utils ---------- */
 function minutesToHM(mins) {
   if (mins == null || isNaN(mins)) return "—";
   const m = Math.max(0, Math.round(mins));
@@ -265,32 +265,93 @@ function minutesToHM(mins) {
   return `${h}:${mm}`;
 }
 
+function timeToHM(isoOrHHMM) {
+  if (!isoOrHHMM) return "—";
+  if (/^\d{2}:\d{2}$/.test(isoOrHHMM)) return isoOrHHMM;
+  try {
+    const d = new Date(isoOrHHMM);
+    if (isNaN(d)) return "—";
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${hh}:${mm}`;
+  } catch {
+    return "—";
+  }
+}
+
+// convert "HH:MM" or ISO datetime → minutes since midnight
+function toClockMinutes(isoOrHHMM) {
+  if (!isoOrHHMM) return null;
+  if (/^\d{2}:\d{2}$/.test(isoOrHHMM)) {
+    const [h, m] = isoOrHHMM.split(":").map(Number);
+    if (isNaN(h) || isNaN(m)) return null;
+    return h * 60 + m;
+  }
+  const d = new Date(isoOrHHMM);
+  if (isNaN(+d)) return null;
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+// SAFE work-minutes resolver:
+//
+// 1) prefer `hours_minutes` (integer minutes from backend)
+// 2) else compute from check-in/out if both exist
+// 3) else (optionally) use `work_minutes` if backend already sends minutes
+//
+// We *never* treat `hours_worked` as minutes/hours (ambiguous).
+function getWorkMinutes(row) {
+  const m = row?.hours_minutes;
+  if (m != null && !isNaN(m)) return Math.max(0, Math.round(Number(m)));
+
+  const ci = row?.check_in ? new Date(row.check_in) : null;
+  const co = row?.check_out ? new Date(row.check_out) : null;
+  if (ci && co && !isNaN(+ci) && !isNaN(+co)) {
+    return Math.max(0, Math.round((co - ci) / 60000));
+  }
+
+  const wm = row?.work_minutes;
+  if (wm != null && !isNaN(wm)) return Math.max(0, Math.round(Number(wm)));
+
+  return 0;
+}
+
 function pct(n) {
   if (n == null || isNaN(n)) return 0;
   return Math.max(0, Math.min(100, n));
 }
 
-// Count working days (Mon–Sat) inclusive between yyyy-mm-dd strings
 function countWorkingDays(fromStr, toStr) {
   if (!fromStr || !toStr) return 0;
   const start = new Date(fromStr);
   const end = new Date(toStr);
   if (isNaN(start) || isNaN(end) || start > end) return 0;
-
   let cnt = 0;
   const d = new Date(start);
   while (d <= end) {
-    const wd = d.getDay(); // 0..6 (Sun..Sat)
-    if (wd >= 1 && wd <= 6) cnt += 1; // Mon..Sat
+    const wd = d.getDay();
+    if (wd >= 1 && wd <= 6) cnt += 1;
     d.setDate(d.getDate() + 1);
   }
   return cnt;
 }
 
-function AdminEmployees() {
+const fmtHead = (isoDate) => {
+  try {
+    const d = new Date(`${isoDate}T00:00:00`);
+    return {
+      day: d.getDate(),
+      wk: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d.getDay()],
+    };
+  } catch {
+    return { day: "?", wk: "?" };
+  }
+};
+/* --------------------------------- */
+
+export default function AdminEmployees() {
   const [employees, setEmployees] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [teamFilter, setTeamFilter] = useState(""); // 🔹 NEW
+  const [teamFilter, setTeamFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [showModal, setShowModal] = useState(false);
@@ -298,14 +359,22 @@ function AdminEmployees() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
+  // attendance modal state
+  const [attOpen, setAttOpen] = useState(false);
+  const [attLoading, setAttLoading] = useState(false);
+  const [attErr, setAttErr] = useState("");
+  const [attRows, setAttRows] = useState([]);
+  const [attFrom, setAttFrom] = useState("");
+  const [attTo, setAttTo] = useState("");
+  const [attEmployee, setAttEmployee] = useState(null);
+
   const isSingleDay = fromDate && toDate && fromDate === toDate;
 
-  // ✅ Default both dates to *local* today (not UTC)
+  // default dates to local today
   useEffect(() => {
-    const today = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in local tz
+    const today = new Date().toLocaleDateString("en-CA");
     if (!fromDate) setFromDate(today);
     if (!toDate) setToDate(today);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchEmployees = async () => {
@@ -315,73 +384,43 @@ function AdminEmployees() {
       const params = new URLSearchParams();
       if (fromDate) params.append("from", fromDate);
       if (toDate) params.append("to", toDate);
-      if (teamFilter) params.append("team", teamFilter); // 🔹 pass to backend if supported
-      const url = `admin/employees/${params.toString() ? `?${params.toString()}` : ""}`;
 
+      const url = `admin/employees/${params.toString() ? `?${params.toString()}` : ""}`;
       const { data } = await api.get(url);
       const list = Array.isArray(data) ? data : [];
 
-      const normalized = list.map((e) => {
-        const username = e.username ?? e.user?.username ?? "";
-        const email = e.email ?? e.user?.email ?? "";
-        const teamRaw =
-          e.team_name ??
-          (typeof e.team === "string" ? e.team : e.team?.name) ??
-          "";
-        const team = teamRaw.trim(); // normalize whitespace
-
-        const wfh_count = e.wfh_count ?? e.wfh ?? 0;
-        const onsite_count = e.onsite_count ?? e.onsite ?? 0;
-
-        // Range/day fields from backend
-        const avg_work_minutes = e.avg_work_minutes ?? null; // for overall bar
-        const checkin_time = e.checkin_time ?? null;         // single-day only
-        const checkout_time = e.checkout_time ?? null;       // single-day only
-        const work_minutes = e.work_minutes ?? null;         // single-day only
-
-        const present =
-          Number(wfh_count) + Number(onsite_count) > 0 ||
-          (work_minutes != null && work_minutes > 0);
-
-        return {
-          id: e.id,
-          username,
-          email,
-          team,
-          designation: e.designation ?? "",
-          leave_balance: e.leave_balance ?? 0,
-          join_date: e.join_date ?? "",
-          wfh_count,
-          onsite_count,
-          present,
-          avg_work_minutes,
-          checkin_time,
-          checkout_time,
-          work_minutes,
-          is_team_lead: !!e.is_team_lead,
-          lead_teams: Array.isArray(e.lead_teams) ? e.lead_teams : [],
-          team_leads: Array.isArray(e.team_leads) ? e.team_leads : [],
-        };
-      });
+      const normalized = list.map((e) => ({
+        id: e.id,
+        username: e.username ?? e.user?.username ?? "",
+        email: e.email ?? e.user?.email ?? "",
+        team: e.team_name ?? (typeof e.team === "string" ? e.team : e.team?.name) ?? "",
+        designation: e.designation ?? "",
+        leave_balance: e.leave_balance ?? 0,
+        join_date: e.join_date ?? "",
+        wfh_count: e.wfh_count ?? e.wfh ?? 0,
+        onsite_count: e.onsite_count ?? e.onsite ?? 0,
+        avg_work_minutes: e.avg_work_minutes ?? null,
+        checkin_time: e.checkin_time ?? null,
+        checkout_time: e.checkout_time ?? null,
+        work_minutes: e.work_minutes ?? null,
+        present:
+          Number(e.wfh_count ?? 0) + Number(e.onsite_count ?? 0) > 0 ||
+          (e.work_minutes != null && e.work_minutes > 0),
+        team_leads: Array.isArray(e.team_leads) ? e.team_leads : [],
+      }));
 
       setEmployees(normalized);
     } catch (error) {
-      console.error("❌ Error fetching employees:", error?.response || error);
-      setErr(
-        error?.response?.data?.detail ||
-          error?.message ||
-          "Failed to load employees"
-      );
+      setErr(error?.response?.data?.detail || error?.message || "Failed to load employees");
     } finally {
       setLoading(false);
     }
   };
 
-  // Refetch on date or team change
   useEffect(() => {
     if (fromDate && toDate) fetchEmployees();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromDate, toDate, teamFilter]); // 🔹 include teamFilter
+  }, [fromDate, toDate]);
 
   const confirmDelete = (id) => {
     setEmployeeToDelete(id);
@@ -395,7 +434,6 @@ function AdminEmployees() {
       setEmployees((prev) => prev.filter((e) => e.id !== employeeToDelete));
       toast.success("✅ Employee deleted successfully!");
     } catch (error) {
-      console.error("❌ Error deleting employee:", error?.response || error);
       toast.error(error?.response?.data?.detail || "❌ Failed to delete employee.");
     } finally {
       setShowModal(false);
@@ -403,17 +441,10 @@ function AdminEmployees() {
     }
   };
 
-  // Search + Team filter (client-side)
   const filteredEmployees = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return employees.filter((emp) => {
-      // team filter
-      const teamOk = teamFilter
-        ? (emp.team || "").trim().toLowerCase() === teamFilter.toLowerCase()
-        : true;
-
-      if (!teamOk) return false;
-
+      if (teamFilter && (emp.team || "") !== teamFilter) return false;
       if (!q) return true;
       const u = (emp.username || "").toLowerCase();
       const m = (emp.email || "").toLowerCase();
@@ -423,13 +454,11 @@ function AdminEmployees() {
     });
   }, [employees, searchTerm, teamFilter]);
 
-  // Working days in selected range
   const workingDays = useMemo(
     () => countWorkingDays(fromDate, toDate),
     [fromDate, toDate]
   );
 
-  // 🔝 Overall totals for the bar
   const { overallTotalMinutes, overallCapacityMinutes } = useMemo(() => {
     const considered = filteredEmployees.filter(
       (e) => e.avg_work_minutes != null && !isNaN(e.avg_work_minutes)
@@ -451,11 +480,68 @@ function AdminEmployees() {
       ? pct((overallTotalMinutes / overallCapacityMinutes) * 100)
       : 0;
 
+  /* ----------------- Attendance Modal ----------------- */
+  const fetchAttendance = async (empId, f, t) => {
+    setAttLoading(true);
+    setAttErr("");
+    try {
+      const { data } = await api.get("admin/employee-attendance/", {
+        params: { employee_id: empId, from: f, to: t },
+      });
+      setAttRows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setAttErr(e?.response?.data?.detail || "Failed to load attendance.");
+      setAttRows([]);
+    } finally {
+      setAttLoading(false);
+    }
+  };
+
+  const openAttendance = (emp) => {
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toLocaleDateString("en-CA");
+    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0).toLocaleDateString("en-CA");
+    const f = fromDate || monthStart;
+    const t = toDate || monthEnd;
+
+    setAttEmployee({ id: emp.id, username: emp.username });
+    setAttFrom(f);
+    setAttTo(t);
+    setAttOpen(true);
+    fetchAttendance(emp.id, f, t);
+  };
+
+  const applyAttRange = (e) => {
+    e.preventDefault();
+    if (!attEmployee || !attFrom || !attTo) return;
+    fetchAttendance(attEmployee.id, attFrom, attTo);
+  };
+
+  // averages for modal (In, Out, Work)
+  const attAverages = useMemo(() => {
+    if (!attRows?.length) return { inAvg: null, outAvg: null, workAvg: null };
+
+    const ins = [], outs = [], works = [];
+    attRows.forEach(r => {
+      const mi = toClockMinutes(r.check_in);
+      const mo = toClockMinutes(r.check_out);
+      const wm = getWorkMinutes(r);
+      if (mi != null) ins.push(mi);
+      if (mo != null) outs.push(mo);
+      // include 0s so the average aligns with the grid’s “Wrk Hr” row
+      works.push(wm);
+    });
+
+    const mean = a => a.length ? Math.round(a.reduce((s,x)=>s+x,0)/a.length) : null;
+    return { inAvg: mean(ins), outAvg: mean(outs), workAvg: mean(works) };
+  }, [attRows]);
+  /* ---------------------------------------------------- */
+
   return (
     <div className="p-6 min-h-screen bg-gray-50">
       <h2 className="text-3xl font-semibold mb-4 text-gray-800">Employee List</h2>
 
-      {/* 🔝 Overall (date-range) Total vs Capacity */}
+      {/* Overall (date-range) bar */}
       <div className="mb-6 rounded-lg border bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-medium text-gray-700">
@@ -478,7 +564,7 @@ function AdminEmployees() {
         </div>
       </div>
 
-      {/* Controls */}
+      {/* Top filters */}
       <div className="flex flex-wrap items-end gap-3 mb-4">
         <div className="flex items-center gap-2">
           <label className="text-sm text-gray-600">From</label>
@@ -499,7 +585,6 @@ function AdminEmployees() {
           />
         </div>
 
-        {/* 🔹 Team filter */}
         <div className="flex items-center gap-2">
           <label className="text-sm text-gray-600">Team</label>
           <select
@@ -517,7 +602,7 @@ function AdminEmployees() {
         <button
           onClick={fetchEmployees}
           className="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-700 text-white"
-          title="Apply filters"
+          title="Apply date range"
         >
           Apply
         </button>
@@ -559,7 +644,6 @@ function AdminEmployees() {
 
           <tbody>
             {filteredEmployees.map((emp) => {
-              const leadNames = (emp.team_leads || []).join(", ");
               const statusChip = emp.present ? (
                 <span className="px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
                   Present
@@ -570,13 +654,16 @@ function AdminEmployees() {
                 </span>
               );
 
-              const dayCheckIn = isSingleDay ? (emp.checkin_time || "—") : "—";
-              const dayCheckOut = isSingleDay ? (emp.checkout_time || "—") : "—";
-              const dayHours = isSingleDay ? minutesToHM(emp.work_minutes) : "—";
-
               return (
                 <tr key={emp.id} className="hover:bg-gray-50">
-                  <td className="border px-4 py-2">{emp.username || "-"}</td>
+                  <td className="border px-4 py-2">
+                    <button
+                      onClick={() => openAttendance(emp)}
+                      className="text-indigo-600 hover:underline"
+                    >
+                      {emp.username || "-"}
+                    </button>
+                  </td>
                   <td className="border px-4 py-2">
                     {emp.email ? (
                       <a href={`mailto:${emp.email}`} className="text-blue-600 hover:underline">
@@ -586,19 +673,17 @@ function AdminEmployees() {
                   </td>
                   <td className="border px-4 py-2">{emp.team || "-"}</td>
                   <td className="border px-4 py-2">
-                    {leadNames || <span className="text-gray-400">-</span>}
+                    {(emp.team_leads || []).join(", ") || <span className="text-gray-400">-</span>}
                   </td>
                   <td className="border px-4 py-2">{emp.designation || "-"}</td>
                   <td className="border px-4 py-2">{emp.leave_balance ?? "-"}</td>
                   <td className="border px-4 py-2">{emp.wfh_count}</td>
                   <td className="border px-4 py-2">{emp.onsite_count}</td>
-
-                  <td className="border px-4 py-2">{dayCheckIn}</td>
-                  <td className="border px-4 py-2">{dayCheckOut}</td>
-                  <td className="border px-4 py-2">{dayHours}</td>
-
+                  <td className="border px-4 py-2">{isSingleDay ? (emp.checkin_time || "—") : "—"}</td>
+                  <td className="border px-4 py-2">{isSingleDay ? (emp.checkout_time || "—") : "—"}</td>
+                  <td className="border px-4 py-2">{isSingleDay ? minutesToHM(emp.work_minutes) : "—"}</td>
                   <td className="border px-4 py-2">{statusChip}</td>
-                  <td className="border px-4 py-2">{isSingleDay ? fromDate : "—"} </td>
+                  <td className="border px-4 py-2">{isSingleDay ? fromDate : "—"}</td>
                   <td className="border px-4 py-2">
                     <button
                       onClick={() => confirmDelete(emp.id)}
@@ -639,8 +724,130 @@ function AdminEmployees() {
           </div>
         </div>
       )}
+
+      {/* Attendance modal with last AVG column (avg check-in, avg checkout, avg work hr) */}
+      {attOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4">
+          <div className="w-full max-w-6xl rounded-xl bg-white shadow-xl border overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <h3 className="font-semibold">Attendance — {attEmployee?.username}</h3>
+              <button onClick={() => setAttOpen(false)} className="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+
+            {/* range filter */}
+            <form onSubmit={applyAttRange} className="px-4 pt-4 pb-2 flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">From</label>
+                <input
+                  type="date"
+                  value={attFrom}
+                  onChange={(e) => setAttFrom(e.target.value)}
+                  className="border rounded px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">To</label>
+                <input
+                  type="date"
+                  value={attTo}
+                  onChange={(e) => setAttTo(e.target.value)}
+                  className="border rounded px-3 py-2"
+                />
+              </div>
+              <button className="ml-auto rounded-lg bg-indigo-600 text-white px-3 py-2">
+                Apply
+              </button>
+            </form>
+
+            {attLoading && <div className="px-4 py-3 text-gray-600">Loading…</div>}
+            {attErr && !attLoading && <div className="px-4 py-3 text-red-700 bg-red-50 border-t">{attErr}</div>}
+
+            {!attLoading && !attErr && (
+              <div className="p-4 overflow-x-auto">
+                {attRows.length === 0 ? (
+                  <div className="text-gray-500">No attendance in this range.</div>
+                ) : (
+                  <table className="min-w-full text-xs">
+                    <thead>
+                      <tr>
+                        {attRows.map((r) => {
+                          const { day, wk } = fmtHead(r.date);
+                          return (
+                            <th key={r.date} className="px-2 py-1 border text-center">
+                              <div className="font-semibold">{day}</div>
+                              <div className="text-gray-500">{wk}</div>
+                            </th>
+                          );
+                        })}
+                        {/* AVG header */}
+                        <th className="px-2 py-1 border text-center">
+                          <div className="font-semibold">Avg</div>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* In row */}
+                      <tr>
+                        {attRows.map((r) => (
+                          <td key={r.date + "-in"} className="px-2 py-1 border text-center">
+                            <span className="text-[11px] text-gray-500 mr-1">In</span>
+                            <span className="text-[11px] font-medium">
+                              {timeToHM(r.check_in)}
+                            </span>
+                          </td>
+                        ))}
+                        <td className="px-2 py-1 border text-center">
+                          <span className="text-[11px] text-gray-500 mr-1">In</span>
+                          <span className="text-[11px] font-semibold">
+                            {minutesToHM(attAverages.inAvg)}
+                          </span>
+                        </td>
+                      </tr>
+
+                      {/* Out row */}
+                      <tr>
+                        {attRows.map((r) => (
+                          <td key={r.date + "-out"} className="px-2 py-1 border text-center">
+                            <span className="text-[11px] text-gray-500 mr-1">Out</span>
+                            <span className="text-[11px] font-medium">
+                              {timeToHM(r.check_out)}
+                            </span>
+                          </td>
+                        ))}
+                        <td className="px-2 py-1 border text-center">
+                          <span className="text-[11px] text-gray-500 mr-1">Out</span>
+                          <span className="text-[11px] font-semibold">
+                            {minutesToHM(attAverages.outAvg)}
+                          </span>
+                        </td>
+                      </tr>
+
+                      {/* Work hours row */}
+                      <tr>
+                        {attRows.map((r) => (
+                          <td key={r.date + "-wh"} className="px-2 py-1 border text-center">
+                            <span className="text-[11px] text-gray-500 mr-1">Wrk Hr</span>
+                            <span className="text-[11px] font-medium">
+                              {minutesToHM(getWorkMinutes(r))}
+                            </span>
+                          </td>
+                        ))}
+                        {/* Avg column */}
+                        <td className="px-2 py-1 border text-center">
+                          <span className="text-[11px] text-gray-500 mr-1">Wrk Hr</span>
+                          <span className="text-[11px] font-semibold">
+                            {minutesToHM(attAverages.workAvg)}
+                          </span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-export default AdminEmployees;
