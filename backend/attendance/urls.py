@@ -19,7 +19,10 @@ from .views import my_leaves, my_leave_cancel
 from .views import me_dashboard
 
 from .views import admin_employee_attendance
+def healthz(request):
+    return JsonResponse({"status": "ok"})
 
+from django.http import JsonResponse
 # attendance/urls.py
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -169,3 +172,5 @@ urlpatterns = [
     path("admin/employees/", admin_employees, name="admin_employees"),
     path("lead/employees/", lead_employees, name="lead_employees"),
 ]
+
+urlpatterns += [path("healthz", healthz)]
