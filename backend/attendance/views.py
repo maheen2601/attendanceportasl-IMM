@@ -1696,4 +1696,51 @@ def _team_leads_map():
         for t in tl.teams.all():
             m[t.id].append(uname)
     return m
+@api_view(["GET"])
+@permission_classes([IsAdminOrTeamLead])
+def admin_employee_attendance(request):
+    """
+    GET /api/admin/employee-attendance/?employee_id=123&from=YYYY-MM-DD&to=YYYY-MM-DD
+    Returns a dense per-day list: one item per date in range.
+    """
+    emp_id = request.query_params.get("employee_id")
+    if not emp_id:
+        return Response({"detail": "employee_id is required."}, status=400)
 
+    # validate employee with role scoping
+    emp_qs = employee_scope_for(request)
+    emp = get_object_or_404(emp_qs, id=emp_id)
+
+    f, t = _parse_range(request)  # you already have this helper at bottom of views.py
+
+    # fetch attendance rows for that employee
+    qs = Attendance.objects.filter(employee=emp, date__range=(f, t))
+    by_date = {a.date: a for a in qs}
+
+    # build dense list day by day
+    out = []
+    cur = f
+    from datetime import timedelta
+    while cur <= t:
+        a = by_date.get(cur)
+        if a:
+            out.append({
+                "date": cur.isoformat(),
+                "status": a.status,
+                "mode": a.mode,
+                "check_in": a.check_in.isoformat() if a.check_in else None,
+                "check_out": a.check_out.isoformat() if a.check_out else None,
+                "hours_minutes": _minutes_from_attendance(a),
+            })
+        else:
+            out.append({
+                "date": cur.isoformat(),
+                "status": "Absent",
+                "mode": None,
+                "check_in": None,
+                "check_out": None,
+                "hours_minutes": 0,
+            })
+        cur += timedelta(days=1)
+
+    return Response(out, status=200)
