@@ -18,6 +18,7 @@ from .views import (
 from .views import my_leaves, my_leave_cancel
 from .views import me_dashboard
 
+from .views import admin_employee_attendance
 
 # attendance/urls.py
 from django.urls import path
@@ -135,6 +136,7 @@ urlpatterns = [
     # path("admin/employees/",            EmployeeListAPIView.as_view(),   name="admin_employee_list"),
     path("admin/employees/create/",     CreateEmployeeAPIView.as_view(), name="admin_employee_create"),
     path("admin/employees/<int:pk>/",   DeleteEmployeeAPIView.as_view(), name="admin_employee_delete"),
+    path("admin/employee-attendance/", admin_employee_attendance, name="admin_employee_attendance"),
 
     # -------- Admin: leave approvals
     path("leave-requests/",             LeaveRequestAdminList.as_view(),   name="leave_requests"),
