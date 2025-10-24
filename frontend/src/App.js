@@ -397,7 +397,7 @@ function Footer() {
   return (
     <footer className="mt-8 border-t border-gray-200 pt-4 text-center text-sm text-gray-500">
       © {new Date().getFullYear()} All Rights Reserved —{" "}
-      <span className="font-semibold text-gray-700">Malik Farooq Jr. Data Analyst</span>
+      <span className="font-semibold text-gray-700">Data Team</span>
     </footer>
   );
 }
