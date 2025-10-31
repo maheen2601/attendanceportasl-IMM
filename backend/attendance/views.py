@@ -483,6 +483,22 @@ def me_profile(request):
 @permission_classes([IsAuthenticated])
 def check_in(request):
     emp = _get_employee(request.user)
+
+    # 🔒 Must not allow a fresh check-in while a prior day is still open
+    open_att = _open_attendance(emp)
+    if open_att:
+        return Response(
+            {
+                "detail": (
+                    f"You still have an open shift for {open_att.date.isoformat()} "
+                    "that has not been checked out. Please check out first."
+                ),
+                "open_shift_date": open_att.date.isoformat(),
+                "open_shift_check_in": open_att.check_in.isoformat() if open_att.check_in else None,
+            },
+            status=409,
+        )
+
     mode = (request.data.get("mode") or "").strip()
     if mode not in ["WFH","Onsite"]:
         return Response({"detail":"mode must be 'WFH' or 'Onsite'."}, status=400)
@@ -495,7 +511,6 @@ def check_in(request):
     shift_start_dt = timezone.make_aware(datetime.combine(today, emp.shift_start))
     grace_deadline = shift_start_dt + timedelta(minutes=settings.grace_minutes)
 
-    # is there a pre-notice created >= late_notice_minutes before shift?
     informed = PreNotice.objects.filter(
         employee=emp, kind='late', for_date=today,
         created_at__lte=shift_start_dt - timedelta(minutes=settings.late_notice_minutes)
@@ -805,25 +820,37 @@ def pre_notify_late(request):
 #     return Response(AttendanceSerializer(a).data)
 
 
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def check_out(request):
     emp = _get_employee(request.user)
-    today = date.today()
-    a = Attendance.objects.filter(employee=emp, date=today).first()
-    if not a or not a.check_in:
-        return Response({"detail":"No check-in found."}, status=400)
+
+    # 🔎 Find any open shift (yesterday or today)
+    a = _open_attendance(emp)
+    if not a:
+        return Response({"detail":"No open check-in to check out."}, status=400)
 
     settings = PolicySettings.get()
     now = timezone.now()
+
     a.check_out = now
-    # Early-off logic
+
+    # Optional: mark cross-midnight shifts for auditing/analytics
+    if now.date() != a.date:
+        # keep your own tag naming if you prefer
+        a.tag = (a.tag or 'normal')
+        if 'cross_midnight' not in (a.tag or ''):
+            a.tag = f"{a.tag}|cross_midnight" if a.tag else "cross_midnight"
+
+    # Early-off logic stays anchored to the attendance date (not 'today')
     min_hours = settings.min_daily_hours
-    approved_early = EarlyOffRequest.objects.filter(employee=emp, for_date=today, status='approved').exists()
-    if a.hours_worked < min_hours and not approved_early:
-        a.tag = 'short_hours'
-    elif a.hours_worked < min_hours and approved_early:
+    approved_early = EarlyOffRequest.objects.filter(employee=emp, for_date=a.date, status='approved').exists()
+    if (a.hours_worked or 0) < min_hours and not approved_early:
+        a.tag = 'short_hours' if 'early_off_ok' not in (a.tag or '') else a.tag
+    elif (a.hours_worked or 0) < min_hours and approved_early:
         a.tag = 'early_off_ok'
+
     a.save()
     return Response(AttendanceSerializer(a).data)
 
@@ -1744,3 +1771,16 @@ def admin_employee_attendance(request):
         cur += timedelta(days=1)
 
     return Response(out, status=200)
+
+
+
+def _open_attendance(emp):
+    """
+    Return the most recent Attendance with check_in set and check_out missing.
+    This covers cross-midnight cases (date may be yesterday).
+    """
+    return (Attendance.objects
+            .filter(employee=emp, check_in__isnull=False, check_out__isnull=True)
+            .order_by('-date', '-check_in')
+            .first())
+
