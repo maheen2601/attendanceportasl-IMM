@@ -683,14 +683,13 @@ def my_leave_cancel(request, pk):
     return Response(status=204)
 
 
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def me_dashboard(request):
     emp = _get_employee(request.user)
     today = date.today()
 
-    # ---- profile
+    # profile
     profile = {
         "username": request.user.username,
         "designation": getattr(emp, "designation", "") or "",
@@ -699,21 +698,18 @@ def me_dashboard(request):
         "team": emp.team.name if getattr(emp, "team_id", None) else "",
     }
 
-    # ---- today block
+    # today
     today_row = Attendance.objects.filter(employee=emp, date=today).first()
     on_leave_today = LeaveRequest.objects.filter(
         employee=emp, status='approved', start_date__lte=today, end_date__gte=today
     ).exists()
     today_block = (
-        {"status": today_row.status, "mode": today_row.mode,
-         "check_in": today_row.check_in.isoformat() if getattr(today_row, "check_in", None) else None,
-         "check_out": today_row.check_out.isoformat() if getattr(today_row, "check_out", None) else None}
+        {"status": today_row.status, "mode": today_row.mode}
         if today_row else
-        {"status": "Leave" if on_leave_today else "None", "mode": None,
-         "check_in": None, "check_out": None}
+        {"status": "Leave" if on_leave_today else "None", "mode": None}
     )
 
-    # ---- month counters
+    # month counters
     month_start = today.replace(day=1)
     month_qs = Attendance.objects.filter(employee=emp, date__range=(month_start, today))
     present_count = month_qs.filter(status="Present").count()
@@ -723,13 +719,14 @@ def me_dashboard(request):
     wfh_count     = month_qs.filter(status="Present", mode="WFH").count()
     onsite_count  = month_qs.filter(status="Present", mode="Onsite").count()
 
-    # ---- pending leaves
+    # pending leaves
     pending_leaves = LeaveRequest.objects.filter(employee=emp, status='pending').count()
 
-    # ---- last 7 days trend
+    # trend (last 7 days)
     days = 7
     start = today - timedelta(days=days - 1)
     by_date = {a.date: a for a in Attendance.objects.filter(employee=emp, date__range=(start, today))}
+
     trend = []
     cur = start
     while cur <= today:
@@ -747,13 +744,15 @@ def me_dashboard(request):
         })
         cur += timedelta(days=1)
 
-    # ---- NEW: expose any open shift (yesterday or today)
-    open_att = _open_attendance(emp)  # returns row with check_in set and check_out missing
+    # ✅ NEW: include any open shift (yesterday or today)
+    open_att = _open_attendance(emp)
     open_shift = None
     if open_att:
         open_shift = {
+            "id": open_att.id,
             "date": open_att.date.isoformat(),
             "check_in": open_att.check_in.isoformat() if open_att.check_in else None,
+            "mode": open_att.mode,
         }
 
     return Response({
@@ -765,9 +764,8 @@ def me_dashboard(request):
         },
         "pending_leaves": pending_leaves,
         "trend": trend,
-        "open_shift": open_shift,      # 👈 Frontend can enable Check-out if this exists
+        "open_shift": open_shift,  # <-- the key your front-end uses
     })
-
 
 class LeaveRequestUpdateAPIView(UpdateAPIView):
     queryset = LeaveRequest.objects.all()
