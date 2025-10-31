@@ -259,7 +259,6 @@
 //   );
 // }
 
-
 // src/pages/EmployeeDashboard.js
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
@@ -286,11 +285,12 @@ export default function EmployeeDashboard() {
   const [acting, setActing] = useState(false);
 
   const [data, setData] = useState({
-    profile: { username: "", designation: "", join_date: "", leave_balance: 0 },
+    profile: { username: "", designation: "", join_date: "", leave_balance: 0, team: "" },
     today:   { status: "None", mode: null },
     month:   { present: 0, absent: 0, leave: 0, wfh: 0, onsite: 0 },
     pending_leaves: 0,
     trend: [],
+    open_shift: null, // ✅ new
   });
 
   // We’ll fetch today’s concrete record to know if user already checked-in/out.
@@ -302,6 +302,8 @@ export default function EmployeeDashboard() {
   });
   const hasCheckedIn = Boolean(todayRec.check_in);
   const hasCheckedOut = Boolean(todayRec.check_out);
+  const hasOpenShift = Boolean(data?.open_shift);
+  const canCheckout = (hasCheckedIn && !hasCheckedOut) || hasOpenShift;
 
   const fetchDashboard = async () => {
     setLoading(true);
@@ -336,6 +338,7 @@ export default function EmployeeDashboard() {
 
   useEffect(() => {
     Promise.all([fetchDashboard(), loadToday()]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const lineData = useMemo(() => {
@@ -388,7 +391,8 @@ export default function EmployeeDashboard() {
   };
 
   const checkOut = async () => {
-    if (!hasCheckedIn) {
+    // Allow if there’s an open shift (even if today's row has no check-in)
+    if (!hasCheckedIn && !hasOpenShift) {
       toast.info("You need to check-in before you can check-out.");
       return;
     }
@@ -441,7 +445,14 @@ export default function EmployeeDashboard() {
               Use pre-notice if you’ll be late, then check-in/out (only once each).
             </div>
             <div className="mt-2 text-xs text-gray-600">
-              Today: <b>{todayRec.date}</b> · Check-in: <b>{fmtTime(todayRec.check_in)}</b>{todayRec.mode ? <> (<b>{todayRec.mode}</b>)</> : null} · Check-out: <b>{fmtTime(todayRec.check_out)}</b>
+              Today: <b>{todayRec.date}</b> · Check-in: <b>{fmtTime(todayRec.check_in)}</b>
+              {todayRec.mode ? <> (<b>{todayRec.mode}</b>)</> : null}
+              {" · "}Check-out: <b>{fmtTime(todayRec.check_out)}</b>
+              {hasOpenShift && (
+                <span className="ml-2 text-red-600">
+                  • Open shift: {data.open_shift.date} (in {fmtTime(data.open_shift.check_in)}) — please check out
+                </span>
+              )}
             </div>
           </div>
           <div className="flex gap-3">
@@ -468,7 +479,7 @@ export default function EmployeeDashboard() {
             </button>
             <button
               onClick={checkOut}
-              disabled={!hasCheckedIn || hasCheckedOut || acting}
+              disabled={!canCheckout || acting}
               className="px-4 py-2 rounded-lg bg-gray-800 text-white hover:bg-gray-900 disabled:opacity-50"
             >
               Check-out
@@ -515,4 +526,3 @@ function Card({ title, value }) {
     </div>
   );
 }
-
