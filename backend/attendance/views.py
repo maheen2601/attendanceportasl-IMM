@@ -1774,7 +1774,6 @@ def admin_employee_attendance(request):
     return Response(out, status=200)
 
 
-
 def _open_attendance(emp):
     """
     Return the most recent Attendance with check_in set and check_out missing.
