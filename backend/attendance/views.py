@@ -689,16 +689,8 @@ def my_leave_cancel(request, pk):
 def me_dashboard(request):
     emp = _get_employee(request.user)
     today = date.today()
-    
 
-    profile = {
-        "username": request.user.username,
-        "designation": getattr(emp, "designation", "") or "",
-        "join_date": getattr(emp, "join_date", None).isoformat() if getattr(emp, "join_date", None) else "",
-        "leave_balance": int(getattr(emp, "leave_balance", 0) or 0),
-       
-    }
-    # profile
+    # ---- profile
     profile = {
         "username": request.user.username,
         "designation": getattr(emp, "designation", "") or "",
@@ -707,18 +699,21 @@ def me_dashboard(request):
         "team": emp.team.name if getattr(emp, "team_id", None) else "",
     }
 
-    # today
+    # ---- today block
     today_row = Attendance.objects.filter(employee=emp, date=today).first()
     on_leave_today = LeaveRequest.objects.filter(
         employee=emp, status='approved', start_date__lte=today, end_date__gte=today
     ).exists()
     today_block = (
-        {"status": today_row.status, "mode": today_row.mode}
+        {"status": today_row.status, "mode": today_row.mode,
+         "check_in": today_row.check_in.isoformat() if getattr(today_row, "check_in", None) else None,
+         "check_out": today_row.check_out.isoformat() if getattr(today_row, "check_out", None) else None}
         if today_row else
-        {"status": "Leave" if on_leave_today else "None", "mode": None}
+        {"status": "Leave" if on_leave_today else "None", "mode": None,
+         "check_in": None, "check_out": None}
     )
 
-    # month counters
+    # ---- month counters
     month_start = today.replace(day=1)
     month_qs = Attendance.objects.filter(employee=emp, date__range=(month_start, today))
     present_count = month_qs.filter(status="Present").count()
@@ -728,14 +723,13 @@ def me_dashboard(request):
     wfh_count     = month_qs.filter(status="Present", mode="WFH").count()
     onsite_count  = month_qs.filter(status="Present", mode="Onsite").count()
 
-    # pending leaves
+    # ---- pending leaves
     pending_leaves = LeaveRequest.objects.filter(employee=emp, status='pending').count()
 
-    # trend (last 7 days)
+    # ---- last 7 days trend
     days = 7
     start = today - timedelta(days=days - 1)
     by_date = {a.date: a for a in Attendance.objects.filter(employee=emp, date__range=(start, today))}
-
     trend = []
     cur = start
     while cur <= today:
@@ -743,7 +737,7 @@ def me_dashboard(request):
         status = a.status if a else None
         present = 1 if status == "Present" else 0
         leave   = 1 if status == "Leave" else 0
-        absent  = 1 if status is None or status == "Absent" else 0  # nothing recorded or explicitly Absent
+        absent  = 1 if status is None or status == "Absent" else 0
         trend.append({
             "date": cur.isoformat(),
             "present": present,
@@ -752,6 +746,15 @@ def me_dashboard(request):
             "total": 1,
         })
         cur += timedelta(days=1)
+
+    # ---- NEW: expose any open shift (yesterday or today)
+    open_att = _open_attendance(emp)  # returns row with check_in set and check_out missing
+    open_shift = None
+    if open_att:
+        open_shift = {
+            "date": open_att.date.isoformat(),
+            "check_in": open_att.check_in.isoformat() if open_att.check_in else None,
+        }
 
     return Response({
         "profile": profile,
@@ -762,8 +765,8 @@ def me_dashboard(request):
         },
         "pending_leaves": pending_leaves,
         "trend": trend,
+        "open_shift": open_shift,      # 👈 Frontend can enable Check-out if this exists
     })
-
 
 
 class LeaveRequestUpdateAPIView(UpdateAPIView):
