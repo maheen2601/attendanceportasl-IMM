@@ -484,20 +484,27 @@ def me_profile(request):
 def check_in(request):
     emp = _get_employee(request.user)
 
-    # 🔒 Must not allow a fresh check-in while a prior day is still open
     open_att = _open_attendance(emp)
     if open_att:
-        return Response(
-            {
-                "detail": (
-                    f"You still have an open shift for {open_att.date.isoformat()} "
-                    "that has not been checked out. Please check out first."
-                ),
-                "open_shift_date": open_att.date.isoformat(),
-                "open_shift_check_in": open_att.check_in.isoformat() if open_att.check_in else None,
-            },
-            status=409,
-        )
+        now = timezone.now()
+        age = now - open_att.check_in if open_att.check_in else timedelta(0)
+
+        if age > timedelta(hours=STALE_OPEN_MAX_HOURS):
+            # Auto-close the stale open shift, then proceed with today's check-in
+            _force_close_stale(open_att, max_hours=STALE_OPEN_MAX_HOURS)
+        else:
+            # Still fresh — block as before
+            return Response(
+                {
+                    "detail": (
+                        f"You still have an open shift for {open_att.date.isoformat()} "
+                        "that has not been checked out. Please check out first."
+                    ),
+                    "open_shift_date": open_att.date.isoformat(),
+                    "open_shift_check_in": open_att.check_in.isoformat() if open_att.check_in else None,
+                },
+                status=409,
+            )
 
     mode = (request.data.get("mode") or "").strip()
     if mode not in ["WFH","Onsite"]:
@@ -507,7 +514,6 @@ def check_in(request):
     today = date.today()
     now = timezone.now()
 
-    # shift start today
     shift_start_dt = timezone.make_aware(datetime.combine(today, emp.shift_start))
     grace_deadline = shift_start_dt + timedelta(minutes=settings.grace_minutes)
 
@@ -524,8 +530,13 @@ def check_in(request):
 
     obj, _ = Attendance.objects.update_or_create(
         employee=emp, date=today,
-        defaults={"status":"Present","mode":mode,"check_in":now,
-                  "minutes_late":minutes_late,"tag":tag}
+        defaults={
+            "status": "Present",
+            "mode": mode,
+            "check_in": now,
+            "minutes_late": minutes_late,
+            "tag": tag,
+        }
     )
     return Response(AttendanceSerializer(obj).data)
 
@@ -827,50 +838,40 @@ def pre_notify_late(request):
 def check_out(request):
     emp = _get_employee(request.user)
 
-    # find any open shift
     a = _open_attendance(emp)
     if not a:
-        return Response({"detail": "No open check-in to check out."}, status=400)
+        return Response({"detail":"No open check-in to check out."}, status=400)
 
     settings = PolicySettings.get()
     now = timezone.now()
 
     try:
-        # set checkout
         a.check_out = now
 
-        # cross-midnight tag
+        # Tag if cross-midnight
         if now.date() != a.date:
-            if not a.tag:
-                a.tag = "cross_midnight"
-            elif "cross_midnight" not in a.tag:
-                a.tag += "|cross_midnight"
+            _append_tag(a, "cross_midnight")
 
-        # compute hours_worked safely
+        # Early-off logic: compute worked hours transiently; DO NOT assign to model
+        delta_hours = 0.0
         if a.check_in and a.check_out:
-            delta = (a.check_out - a.check_in).total_seconds() / 3600
-            a.hours_worked = round(delta, 2)
-        else:
-            a.hours_worked = a.hours_worked or 0.0
+            delta_hours = max(0.0, (a.check_out - a.check_in).total_seconds() / 3600.0)
 
-        # early off logic
-        min_hours = settings.min_daily_hours or 0
+        min_hours = float(settings.min_daily_hours or 0)
         approved_early = EarlyOffRequest.objects.filter(
-            employee=emp, for_date=a.date, status="approved"
+            employee=emp, for_date=a.date, status='approved'
         ).exists()
 
-        if a.hours_worked < min_hours:
-            if approved_early:
-                a.tag = (a.tag or "") + "|early_off_ok"
-            else:
-                a.tag = (a.tag or "") + "|short_hours"
+        if delta_hours < min_hours:
+            _append_tag(a, "early_off_ok" if approved_early else "short_hours")
 
-        a.save(update_fields=["check_out", "hours_worked", "tag"])
+        # Save (only the fields we changed)
+        a.save(update_fields=["check_out", "tag"])
+
+        # Respond with serialized row; client can compute minutes/hours
         return Response(AttendanceSerializer(a).data)
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
         return Response({"detail": f"Checkout failed: {str(e)}"}, status=500)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -1801,3 +1802,33 @@ def _open_attendance(emp):
             .order_by('-date', '-check_in')
             .first())
 
+
+STALE_OPEN_MAX_HOURS = 15  # or fetch from PolicySettings if you add a field there
+
+
+def _append_tag(att, new_tag):
+    """Append a tag safely, avoiding duplicates and empty strings."""
+    cur = (att.tag or "").strip()
+    if not cur:
+        att.tag = new_tag
+        return
+    parts = [p for p in cur.split("|") if p]
+    if new_tag not in parts:
+        parts.append(new_tag)
+    att.tag = "|".join(parts)
+
+
+def _force_close_stale(att, *, max_hours=STALE_OPEN_MAX_HOURS):
+    """
+    Force-close an open Attendance by capping its checkout time at
+    (check_in + max_hours). Adds 'auto_close_stale' tag and saves.
+    """
+    if not att.check_in or att.check_out:
+        return att  # nothing to do
+
+    cutoff = att.check_in + timedelta(hours=max_hours)
+    att.check_out = cutoff
+    _append_tag(att, "auto_close_stale")
+    # do NOT assign att.hours_worked here if it's a computed property
+    att.save(update_fields=["check_out", "tag"])
+    return att
