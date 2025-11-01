@@ -827,34 +827,51 @@ def pre_notify_late(request):
 def check_out(request):
     emp = _get_employee(request.user)
 
-    # 🔎 Find any open shift (yesterday or today)
+    # find any open shift
     a = _open_attendance(emp)
     if not a:
-        return Response({"detail":"No open check-in to check out."}, status=400)
+        return Response({"detail": "No open check-in to check out."}, status=400)
 
     settings = PolicySettings.get()
     now = timezone.now()
 
-    a.check_out = now
+    try:
+        # set checkout
+        a.check_out = now
 
-    # Optional: mark cross-midnight shifts for auditing/analytics
-    if now.date() != a.date:
-        # keep your own tag naming if you prefer
-        a.tag = (a.tag or 'normal')
-        if 'cross_midnight' not in (a.tag or ''):
-            a.tag = f"{a.tag}|cross_midnight" if a.tag else "cross_midnight"
+        # cross-midnight tag
+        if now.date() != a.date:
+            if not a.tag:
+                a.tag = "cross_midnight"
+            elif "cross_midnight" not in a.tag:
+                a.tag += "|cross_midnight"
 
-    # Early-off logic stays anchored to the attendance date (not 'today')
-    min_hours = settings.min_daily_hours
-    approved_early = EarlyOffRequest.objects.filter(employee=emp, for_date=a.date, status='approved').exists()
-    if (a.hours_worked or 0) < min_hours and not approved_early:
-        a.tag = 'short_hours' if 'early_off_ok' not in (a.tag or '') else a.tag
-    elif (a.hours_worked or 0) < min_hours and approved_early:
-        a.tag = 'early_off_ok'
+        # compute hours_worked safely
+        if a.check_in and a.check_out:
+            delta = (a.check_out - a.check_in).total_seconds() / 3600
+            a.hours_worked = round(delta, 2)
+        else:
+            a.hours_worked = a.hours_worked or 0.0
 
-    a.save()
-    return Response(AttendanceSerializer(a).data)
+        # early off logic
+        min_hours = settings.min_daily_hours or 0
+        approved_early = EarlyOffRequest.objects.filter(
+            employee=emp, for_date=a.date, status="approved"
+        ).exists()
 
+        if a.hours_worked < min_hours:
+            if approved_early:
+                a.tag = (a.tag or "") + "|early_off_ok"
+            else:
+                a.tag = (a.tag or "") + "|short_hours"
+
+        a.save(update_fields=["check_out", "hours_worked", "tag"])
+        return Response(AttendanceSerializer(a).data)
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return Response({"detail": f"Checkout failed: {str(e)}"}, status=500)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def my_attendance(request):
