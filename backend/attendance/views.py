@@ -1805,17 +1805,43 @@ def _open_attendance(emp):
 
 STALE_OPEN_MAX_HOURS = 15  # or fetch from PolicySettings if you add a field there
 
+MAX_TAG_LEN = 20
+
+TAG_ALIAS = {
+    "auto_close_stale": "acs",
+    "cross_midnight":   "cm",
+    "short_hours":      "sh",
+    "early_off_ok":     "eok",
+    "late_uninf":       "lu",
+    "late_inf":         "li",
+    "normal":           "n",
+}
 
 def _append_tag(att, new_tag):
-    """Append a tag safely, avoiding duplicates and empty strings."""
+    """
+    Append a compact tag to att.tag without exceeding DB limit (VARCHAR(20)).
+    - Uses TAG_ALIAS when available.
+    - De-dupes.
+    - Keeps only the last few tokens if needed to fit.
+    """
+    # normalize to alias
+    t = TAG_ALIAS.get(new_tag, new_tag)
+
+    # current tokens (already compacted if we’ve used this once)
     cur = (att.tag or "").strip()
-    if not cur:
-        att.tag = new_tag
-        return
-    parts = [p for p in cur.split("|") if p]
-    if new_tag not in parts:
-        parts.append(new_tag)
-    att.tag = "|".join(parts)
+    tokens = [tok for tok in cur.split("|") if tok] if cur else []
+
+    # de-dup
+    if t not in tokens:
+        tokens.append(t)
+
+    # ensure fits MAX_TAG_LEN by dropping oldest tokens
+    s = "|".join(tokens)
+    while len(s) > MAX_TAG_LEN and tokens:
+        tokens.pop(0)          # drop oldest
+        s = "|".join(tokens)
+
+    att.tag = s  # <= 20 chars
 
 
 def _force_close_stale(att, *, max_hours=STALE_OPEN_MAX_HOURS):
