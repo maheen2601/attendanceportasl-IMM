@@ -1,114 +1,61 @@
-
-
 # attendance/serializers.py
 from rest_framework import serializers
 from django.contrib.auth.models import User
-
-from .models import (
-    Employee,
-    LeaveRequest,
-    Attendance,
-    EarlyOffRequest,
-    AttendanceCorrection,
-    Team,
-    TeamLead,
-)
-
-# -----------------------------
-# Small local helper to parse requested mode from reason text
-# (avoids importing from views and circular imports)
-# -----------------------------
-import re
-_MODE_TOKEN_RE = re.compile(r"\[MODE:(WFH|Onsite)\]", re.I)
-
-def _decode_mode_from_text(text: str | None) -> str | None:
-    if not text:
-        return None
-    m = _MODE_TOKEN_RE.search(text)
-    return m.group(1).title() if m else None
+from .models import Employee, LeaveRequest, Attendance
+from .models import EarlyOffRequest
+from .models import Employee, LeaveRequest, Attendance, EarlyOffRequest, AttendanceCorrection, Team, TeamLead
 
 
-# -----------------------------
-# Employee / Leave serializers
-# -----------------------------
 class EmployeeProfileSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(source="user.username", read_only=True)
+    username = serializers.CharField(source='user.username', read_only=True)
 
     class Meta:
         model = Employee
-        fields = ["id", "username", "designation", "join_date", "leave_balance"]
-
+        fields = ['id', 'username', 'designation', 'join_date', 'leave_balance']
 
 class LeaveRequestSerializer(serializers.ModelSerializer):
-    employee_name = serializers.CharField(source="employee.user.username", read_only=True)
+    employee_name = serializers.CharField(source='employee.user.username', read_only=True)
 
     class Meta:
         model = LeaveRequest
         fields = [
-            "id",
-            "employee",
-            "employee_name",
-            "start_date",
-            "end_date",
-            "reason",
-            "leave_type",
-            "status",
-            "step",
-            "notice_met",
-            "peer_note",
-            "created_at",
+            'id', 'employee', 'employee_name',
+            'start_date','end_date','reason','leave_type',
+            'status','step','notice_met','peer_note','created_at',
             # lead/admin display fields (read-only to most callers)
-            "lead_decision",
-            "lead_note",
-            "lead_decided_by",
-            "lead_decided_at",
-            "admin_note",
+            'lead_decision','lead_note','lead_decided_by','lead_decided_at',
+            'admin_note',
         ]
-
         read_only_fields = (
-            "status",
-            "step",
-            "notice_met",
-            "created_at",
-            "lead_decision",
-            "lead_note",
-            "lead_decided_by",
-            "lead_decided_at",
-            "admin_note",
-            
+            'status','step','notice_met','created_at',
+            'lead_decision','lead_note','lead_decided_by','lead_decided_at',
+            'admin_note',
         )
-
-
 class LeaveRequestCreateSerializer(serializers.ModelSerializer):
     """Employee creates a request -> always starts at step=lead, status=pending."""
     class Meta:
         model = LeaveRequest
-        fields = ["start_date", "end_date", "reason", "leave_type", "peer_note"]
-
+        fields = ['start_date','end_date','reason','leave_type','peer_note']
 
 class LeaveLeadDecisionSerializer(serializers.ModelSerializer):
     """Used by Team Leads only."""
     class Meta:
         model = LeaveRequest
-        fields = ["lead_decision", "lead_note"]  # approved / rejected + note
-
+        fields = ['lead_decision','lead_note']  # approved / rejected + note
 
 class LeaveAdminDecisionSerializer(serializers.ModelSerializer):
     """Used by Admin for the final decision."""
     class Meta:
         model = LeaveRequest
-        fields = ["status", "admin_note"]  # status must be approved/rejected
-
+        fields = ['status','admin_note']  # status must be approved/rejected
 
 class LeaveRequestStatusUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveRequest
-        fields = ["status"]  # only allow changing status
+        fields = ['status']  # only allow changing status
 
 
-# -----------------------------
-# Attendance serializers
-# -----------------------------
+
 class AttendanceSerializer(serializers.ModelSerializer):
     date = serializers.DateField(format="%Y-%m-%d")
     check_in = serializers.DateTimeField(format="%Y-%m-%dT%H:%M:%S%z", required=False, allow_null=True)
@@ -118,85 +65,54 @@ class AttendanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Attendance
         fields = [
-            "id",
-            "date",
-            "status",
-            "mode",
-            "check_in",
-            "check_out",
-            "minutes_late",
-            "tag",
-            "hours_worked",
+            "id", "date", "status", "mode",
+            "check_in", "check_out",
+            "minutes_late", "tag", "hours_worked",
         ]
 
     def get_hours_worked(self, obj):
-        # If your model already stores hours_worked (float/decimal), prefer it
+        # if your model already has a property, this will return it
         hw = getattr(obj, "hours_worked", None)
         if hw is not None:
             return hw
-        # Fallback compute from check_in/out
+        # fallback compute
         if obj.check_in and obj.check_out:
             delta = obj.check_out - obj.check_in
             return round(delta.total_seconds() / 3600, 2)
         return None
 
-
-# -----------------------------
-# Early Off serializers
-# -----------------------------
 class EarlyOffRequestSerializer(serializers.ModelSerializer):
-    employee_name = serializers.CharField(source="employee.user.username", read_only=True)
-
+    employee_name = serializers.CharField(source='employee.user.username', read_only=True)
     class Meta:
         model = EarlyOffRequest
         fields = [
-            "id",
-            "employee",
-            "employee_name",
-            "for_date",
-            "reason",
-            "status",
-            "admin_note",
-            "created_at",
-            "updated_at",
+            'id','employee','employee_name',
+            'for_date','reason','status','admin_note',
+            'created_at','updated_at'
         ]
-        read_only_fields = ["status", "created_at", "updated_at"]
-
+        read_only_fields = ['status','created_at','updated_at']
 
 class EarlyOffDecisionSerializer(serializers.ModelSerializer):
     class Meta:
         model = EarlyOffRequest
-        fields = ["status", "admin_note"]
+        fields = ['status','admin_note']
 
-
-# -----------------------------
-# Attendance Correction serializers
-# -----------------------------
 class AttendanceCorrectionSerializer(serializers.ModelSerializer):
     # nice to have for the admin list
-    employee_name = serializers.CharField(source="employee.user.username", read_only=True)
-    # NEW: expose requested_mode parsed from reason ([MODE:WFH] or [MODE:Onsite])
-    requested_mode = serializers.SerializerMethodField(read_only=True)
+    employee_name = serializers.CharField(
+        source="employee.user.username", read_only=True
+    )
 
     class Meta:
         model = AttendanceCorrection
         fields = [
-            "id",
-            "employee",
-            "employee_name",
-            "for_date",
-            "want_check_in",
-            "want_check_out",
-            "reason",
-            "status",
-            "admin_note",
-            "created_at",
-            "requested_mode",  # 👈 added
+            "id", "employee", "employee_name",
+            "for_date", "want_check_in", "want_check_out",
+            "reason", "status", "admin_note", "created_at",
+
         ]
         read_only_fields = ("status", "admin_note", "created_at", "employee")
 
-    def get_requested_mode(self, obj):
-        return _decode_mode_from_text(getattr(obj, "reason", None))
 
 
 class AttendanceCorrectionUpdateSerializer(serializers.ModelSerializer):
@@ -204,52 +120,41 @@ class AttendanceCorrectionUpdateSerializer(serializers.ModelSerializer):
         model = AttendanceCorrection
         fields = ("status", "admin_note")
 
-
-# -----------------------------
-# Teams / Employee creation
-# -----------------------------
 class TeamSerializer(serializers.ModelSerializer):
     class Meta:
         model = Team
         fields = ["id", "name"]
 
-
 class EmployeeCreateSerializer(serializers.ModelSerializer):
     username = serializers.CharField(write_only=True)
     password = serializers.CharField(write_only=True)
-    email = serializers.EmailField(write_only=True)
+    email    = serializers.EmailField(write_only=True)
 
     team = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     # NEW:
     is_team_lead = serializers.BooleanField(write_only=True, required=False, default=False)
-    lead_teams = serializers.ListField(
+    lead_teams   = serializers.ListField(
         child=serializers.CharField(), write_only=True, required=False, default=list
     )
 
     class Meta:
         model = Employee
         fields = [
-            "id",
-            "username",
-            "password",
-            "email",
-            "designation",
-            "leave_balance",
-            "join_date",
+            "id", "username", "password", "email",
+            "designation", "leave_balance", "join_date",
             "team",
             # NEW:
-            "is_team_lead",
-            "lead_teams",
+            "is_team_lead", "lead_teams",
         ]
 
     def create(self, validated_data):
-        username = validated_data.pop("username")
-        password = validated_data.pop("password")
-        email = validated_data.pop("email")
+        username  = validated_data.pop("username")
+        password  = validated_data.pop("password")
+        email     = validated_data.pop("email")
         team_name = (validated_data.pop("team", "") or "").strip()
 
-        is_lead = bool(validated_data.pop("is_team_lead", False))
+        is_lead   = bool(validated_data.pop("is_team_lead", False))
         lead_list = validated_data.pop("lead_teams", []) or []
 
         user = User.objects.create_user(username=username, password=password, email=email)
@@ -277,34 +182,35 @@ class EmployeeCreateSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         rep = super().to_representation(instance)
         rep["username"] = instance.user.username
-        rep["email"] = instance.user.email
-        rep["team"] = instance.team.name if instance.team else None
+        rep["email"]    = instance.user.email
+        rep["team"]     = instance.team.name if instance.team else None
 
         # helpful for the Employee List table (optional)
         tl = getattr(instance.user, "team_lead", None)
         rep["is_team_lead"] = bool(tl)
-        rep["lead_teams"] = [t.name for t in tl.teams.all()] if tl else []
+        rep["lead_teams"]   = [t.name for t in tl.teams.all()] if tl else []
         return rep
 
 
-# -----------------------------
-# Employee list (admin/lead tables)
-# -----------------------------
+# attendance/serializers.py
 class EmployeeListSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
-    email = serializers.EmailField(source="user.email", read_only=True)
-    team = serializers.CharField(source="team.name", read_only=True)
+    email    = serializers.EmailField(source="user.email", read_only=True)
+    team     = serializers.CharField(source="team.name", read_only=True)
 
     # NEW
     is_team_lead = serializers.SerializerMethodField()
-    lead_teams = serializers.SerializerMethodField()   # teams this person leads
-    team_leads = serializers.SerializerMethodField()   # leaders of this employee's team
+    lead_teams   = serializers.SerializerMethodField()     # teams this person leads
+    team_leads   = serializers.SerializerMethodField()     # leaders of this employee's team
 
-    wfh_count = serializers.IntegerField(read_only=True, default=0)
+    wfh_count    = serializers.IntegerField(read_only=True, default=0)
     onsite_count = serializers.IntegerField(read_only=True, default=0)
 
     def get_is_team_lead(self, obj):
         return hasattr(obj.user, "team_lead")
+
+    def get_is_team_lead(self,obj):
+        return hasattr(obj.user,"team_lead")
 
     def get_lead_teams(self, obj):
         tl = getattr(obj.user, "team_lead", None)
@@ -316,18 +222,9 @@ class EmployeeListSerializer(serializers.ModelSerializer):
         return mapping.get(obj.team_id, [])
 
     class Meta:
-        model = Employee
+        model  = Employee
         fields = (
-            "id",
-            "username",
-            "email",
-            "team",
-            "designation",
-            "leave_balance",
-            "join_date",
-            "wfh_count",
-            "onsite_count",
-            "is_team_lead",
-            "lead_teams",
-            "team_leads",
+            "id","username","email","team","designation","leave_balance",
+            "join_date","wfh_count","onsite_count",
+            "is_team_lead","lead_teams","team_leads",
         )
