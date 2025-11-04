@@ -832,7 +832,6 @@ def pre_notify_late(request):
 #     return Response(AttendanceSerializer(a).data)
 
 
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def check_out(request):
@@ -840,7 +839,18 @@ def check_out(request):
 
     a = _open_attendance(emp)
     if not a:
-        return Response({"detail":"No open check-in to check out."}, status=400)
+        # Check if already checked out today
+        today = timezone.localdate()
+        existing = Attendance.objects.filter(employee=emp, date=today).first()
+        if existing and existing.check_out:
+            return Response(
+                {"detail": "You have already checked out for today."},
+                status=400
+            )
+        return Response(
+            {"detail": "No open check-in to check out."},
+            status=400
+        )
 
     settings = PolicySettings.get()
     now = timezone.now()
@@ -852,7 +862,7 @@ def check_out(request):
         if now.date() != a.date:
             _append_tag(a, "cross_midnight")
 
-        # Early-off logic: compute worked hours transiently; DO NOT assign to model
+        # Early-off logic
         delta_hours = 0.0
         if a.check_in and a.check_out:
             delta_hours = max(0.0, (a.check_out - a.check_in).total_seconds() / 3600.0)
@@ -865,14 +875,12 @@ def check_out(request):
         if delta_hours < min_hours:
             _append_tag(a, "early_off_ok" if approved_early else "short_hours")
 
-        # Save (only the fields we changed)
         a.save(update_fields=["check_out", "tag"])
-
-        # Respond with serialized row; client can compute minutes/hours
         return Response(AttendanceSerializer(a).data)
 
     except Exception as e:
         return Response({"detail": f"Checkout failed: {str(e)}"}, status=500)
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def my_attendance(request):
