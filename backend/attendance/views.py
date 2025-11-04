@@ -1802,16 +1802,31 @@ def admin_employee_attendance(request):
 
 def _open_attendance(emp):
     """
-    Return the most recent Attendance with check_in set and check_out missing.
-    This covers cross-midnight cases (date may be yesterday).
+    Return the most recent Attendance with check_in set and check_out missing,
+    *but only if* it's not older than 16 hours.
     """
-    return (Attendance.objects
-            .filter(employee=emp, check_in__isnull=False, check_out__isnull=True)
-            .order_by('-date', '-check_in')
-            .first())
+    now = timezone.now()
+    sixteen_hours_ago = now - timedelta(hours=16)
+
+    att = (Attendance.objects
+           .filter(employee=emp, check_in__isnull=False, check_out__isnull=True)
+           .order_by('-date', '-check_in')
+           .first())
+
+    # If no record, return None
+    if not att:
+        return None
+
+    # ✅ Auto-close if it's older than 16 hours
+    if att.check_in < sixteen_hours_ago:
+        _force_close_stale(att, max_hours=16)
+        return None  # treat it as closed
+
+    return att
 
 
-STALE_OPEN_MAX_HOURS = 15  # or fetch from PolicySettings if you add a field there
+
+STALE_OPEN_MAX_HOURS = 16  # or fetch from PolicySettings if you add a field there
 
 MAX_TAG_LEN = 20
 
