@@ -1134,50 +1134,85 @@ def my_attendance_corrections(request):
 
 
 
+
+
+import re
+from rest_framework.generics import RetrieveUpdateAPIView
+from rest_framework.response import Response
+from rest_framework import serializers
+from django.utils import timezone
+from datetime import datetime
+from django.shortcuts import get_object_or_404
+
+
 class AttendanceCorrectionAdminUpdate(RetrieveUpdateAPIView):
     permission_classes = [IsAdminOrTeamLead]
     serializer_class = AttendanceCorrectionUpdateSerializer
-    queryset = AttendanceCorrection.objects.select_related("employee__user","employee__team")
+    queryset = AttendanceCorrection.objects.select_related("employee__team", "employee__user")
 
     def check_object_permissions(self, request, obj):
-        # Admin (staff but not a lead) can act everywhere
+        # Admin (staff but NOT logging in as lead): allowed everywhere
         if request.user.is_staff and not hasattr(request.user, "team_lead"):
             return
-        # Leads: only their teams
+        # Team lead: only their teams
         allowed = lead_allowed_team_names(request.user)
         if obj.employee.team and obj.employee.team.name in allowed:
             return
+        from rest_framework.exceptions import PermissionDenied
         raise PermissionDenied("You cannot act on requests outside your teams.")
 
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
         prev = instance.status
+
         resp = super().partial_update(request, *args, **kwargs)
         instance.refresh_from_db()
 
-        if prev != 'approved' and instance.status == 'approved':
+        if prev != "approved" and instance.status == "approved":
             emp = instance.employee
             att, _ = Attendance.objects.get_or_create(
-                employee=emp, date=instance.for_date,
-                defaults={"status": "Present", "mode": "WFH"}
+                employee=emp,
+                date=instance.for_date,
+                defaults={"status": "Present", "mode": "WFH"},
             )
 
             def to_dt(d, t):
-                if isinstance(t, str):
-                    from datetime import datetime as dtc
-                    t = dtc.strptime(t, "%H:%M").time()
-                return timezone.make_aware(datetime.combine(d, t))
+                if not t:
+                    return None
+                try:
+                    if isinstance(t, str):
+                        t = datetime.strptime(t, "%H:%M").time()
+                    return timezone.make_aware(datetime.combine(d, t))
+                except Exception:
+                    return None
 
             if instance.want_check_in:
                 att.check_in = to_dt(instance.for_date, instance.want_check_in)
             if instance.want_check_out:
                 att.check_out = to_dt(instance.for_date, instance.want_check_out)
 
-            shift_start = timezone.make_aware(datetime.combine(instance.for_date, emp.shift_start))
+            # minutes late
+            emp_shift_start = getattr(emp, "shift_start", None) or datetime.strptime("09:00", "%H:%M").time()
+            shift_start = timezone.make_aware(datetime.combine(instance.for_date, emp_shift_start))
             att.minutes_late = max(0, int(((att.check_in or shift_start) - shift_start).total_seconds() // 60))
-            att.tag = 'corrected'
+            att.tag = "corrected"
             att.status = "Present"
-            att.save()
+
+            # infer mode from reason/admin_note
+            mode_txt = None
+            m = re.search(r"\[MODE\s*:\s*(WFH|Onsite)\]", (instance.reason or ""), flags=re.I)
+            if m:
+                mode_txt = m.group(1).title()
+            else:
+                m2 = re.search(r"\bmode\s*[:=]\s*(WFH|Onsite)\b", (instance.admin_note or ""), flags=re.I)
+                if m2:
+                    mode_txt = m2.group(1).title()
+
+            if mode_txt in {"WFH", "Onsite"}:
+                att.mode = mode_txt
+
+            att.save(update_fields=["check_in", "check_out", "minutes_late", "tag", "status", "mode"])
+
         return resp
 
 
