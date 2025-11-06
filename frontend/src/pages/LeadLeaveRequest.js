@@ -1,3 +1,4 @@
+// src/pages/LeadLeaveRequests.js
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../utils/axiosInstance";
 import { toast } from "react-toastify";
@@ -27,7 +28,7 @@ export default function LeadLeaveRequests() {
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
 
-  // NEW: which set to show
+  // which set to show
   // 'lead' => use lead endpoint; others use admin endpoint with ?stage=
   const [stage, setStage] = useState("lead"); // lead|admin|done|all
 
@@ -85,10 +86,13 @@ export default function LeadLeaveRequests() {
     if (!cur) return;
     setActing(true);
     try {
-      await api.patch(`lead/leave-requests/${cur.id}/`, {
-        lead_decision: actionType,
-        lead_note: leadNote || null,
-      });
+      // ✅ Only include lead_note if non-empty to avoid NULL validation errors
+      const payload = { lead_decision: actionType };
+      const noteTrim = (leadNote || "").trim();
+      if (noteTrim) payload.lead_note = noteTrim;
+
+      await api.patch(`lead/leave-requests/${cur.id}/`, payload);
+
       toast.success(actionType === "approved" ? "Forwarded to admin ✅" : "Request rejected.");
       setOpen(false);
       // Remove from view if we’re in the lead queue; otherwise just refresh
@@ -99,8 +103,13 @@ export default function LeadLeaveRequests() {
       }
     } catch (e) {
       const data = e?.response?.data || {};
-      const msg = data.detail ||
-        Object.entries(data).map(([k, v]) => (Array.isArray(v) ? `${k}: ${v.join(" ")}` : `${k}: ${v}`)).join(" | ") ||
+      const msg =
+        data.detail ||
+        Object.entries(data)
+          .map(([k, v]) =>
+            Array.isArray(v) ? `${k}: ${v.join(" ")}` : `${k}: ${v}`
+          )
+          .join(" | ") ||
         "Action failed.";
       toast.error(msg);
     } finally {
@@ -115,7 +124,7 @@ export default function LeadLeaveRequests() {
       <div className="flex items-center gap-3 mb-4">
         <h1 className="text-2xl font-semibold">Lead — Leave Approvals</h1>
 
-        {/* NEW: Stage picker */}
+        {/* Stage picker */}
         <div className="ml-auto flex items-center gap-2">
           <select
             value={stage}
@@ -164,7 +173,6 @@ export default function LeadLeaveRequests() {
         </div>
       </div>
 
-        
       {loading && <div className="mb-4 p-3 rounded bg-gray-50 text-gray-700 border border-gray-200">Loading…</div>}
       {err && !loading && <div className="mb-4 p-3 rounded bg-red-50 text-red-700 border border-red-200">{err}</div>}
 
