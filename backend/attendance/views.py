@@ -1696,7 +1696,12 @@ def _parse_range(request):
 @api_view(["GET"])
 @permission_classes([IsAdminOrTeamLead])
 def lead_employees(request):
+    """
+    GET /api/lead/employees/?from=YYYY-MM-DD&to=YYYY-MM-DD
+    Returns employees under this lead/admin, with aggregated counts and new Pre-Notify Late flag.
+    """
     _from, _to = _parse_range(request)
+    single_day = (_from == _to)
 
     emp_qs = employee_scope_for(request).select_related("user", "team")
 
@@ -1719,34 +1724,49 @@ def lead_employees(request):
         ),
     ).order_by("user__username")
 
+    # preload attendances
     atts = Attendance.objects.filter(
         employee__in=emp_qs, date__range=(_from, _to)
-    ).only("id","employee_id","date","status","mode","check_in","check_out")
+    ).only("id", "employee_id", "date", "status", "mode", "check_in", "check_out")
 
-    by_emp = defaultdict(list)
+    # ✅ Preload prenotices (only late)
+    pre_late = PreNotice.objects.filter(
+        kind="late", for_date__range=(_from, _to), employee__in=emp_qs
+    ).values_list("employee_id", "for_date")
+
+    # build maps for quick lookup
+    by_emp_att = defaultdict(list)
     for a in atts:
-        by_emp[a.employee_id].append(a)
+        by_emp_att[a.employee_id].append(a)
 
-    # ✅ add this
+    pre_late_map = defaultdict(set)
+    for emp_id, fdate in pre_late:
+        pre_late_map[emp_id].add(fdate)
+
     leads_map = _team_leads_map()
 
-    single_day = (_from == _to)
     data = []
     for e in emp_qs:
-        rows = by_emp.get(e.id, [])
-
+        rows = by_emp_att.get(e.id, [])
         present_rows = [a for a in rows if a.status == "Present"]
         total_minutes = sum(_minutes_from_attendance(a) for a in present_rows)
         avg_work_minutes = int(round(total_minutes / len(present_rows))) if present_rows else 0
 
         checkin_time = checkout_time = None
         work_minutes = None
+        pre_notify_late = False
+
         if single_day:
             todays = next((a for a in rows if a.date == _from), None)
             if todays:
-                checkin_time  = _fmt_hhmm(todays.check_in)
+                checkin_time = _fmt_hhmm(todays.check_in)
                 checkout_time = _fmt_hhmm(todays.check_out)
-                work_minutes  = _minutes_from_attendance(todays)
+                work_minutes = _minutes_from_attendance(todays)
+            # ✅ Determine if pre-notified late on that date
+            pre_notify_late = _from in pre_late_map.get(e.id, set())
+        else:
+            # if range > 1 day, mark true if any day has prenotice late
+            pre_notify_late = bool(pre_late_map.get(e.id))
 
         w = int(getattr(e, "wfh_count", 0) or 0)
         o = int(getattr(e, "onsite_count", 0) or 0)
@@ -1759,18 +1779,16 @@ def lead_employees(request):
             "designation": getattr(e, "designation", ""),
             "leave_balance": int(getattr(e, "leave_balance", 0) or 0),
             "join_date": (getattr(e, "join_date", None) or "") and e.join_date.isoformat(),
-
             "wfh_count": w,
             "onsite_count": o,
             "present": (w + o) > 0,
-
             "checkin_time": checkin_time,
             "checkout_time": checkout_time,
             "work_minutes": work_minutes,
             "avg_work_minutes": avg_work_minutes,
-
-            # ✅ include team leads
             "team_leads": leads_map.get(e.team_id, []),
+            # ✅ NEW COLUMN: Pre-Notify Late
+            "pre_notify_late": pre_notify_late,
         })
 
     return Response(data)
