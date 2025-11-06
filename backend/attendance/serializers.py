@@ -193,15 +193,17 @@ class EmployeeCreateSerializer(serializers.ModelSerializer):
 
 
 # attendance/serializers.py
+
 class EmployeeListSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
     email    = serializers.EmailField(source="user.email", read_only=True)
     team     = serializers.CharField(source="team.name", read_only=True)
 
-    # NEW
+    # NEW fields
     is_team_lead = serializers.SerializerMethodField()
-    lead_teams   = serializers.SerializerMethodField()     # teams this person leads
-    team_leads   = serializers.SerializerMethodField()     # leaders of this employee's team
+    lead_teams   = serializers.SerializerMethodField()
+    team_leads   = serializers.SerializerMethodField()
+    pre_notify_late = serializers.SerializerMethodField()   # 👈 NEW FIELD
 
     wfh_count    = serializers.IntegerField(read_only=True, default=0)
     onsite_count = serializers.IntegerField(read_only=True, default=0)
@@ -209,22 +211,41 @@ class EmployeeListSerializer(serializers.ModelSerializer):
     def get_is_team_lead(self, obj):
         return hasattr(obj.user, "team_lead")
 
-    def get_is_team_lead(self,obj):
-        return hasattr(obj.user,"team_lead")
-
     def get_lead_teams(self, obj):
         tl = getattr(obj.user, "team_lead", None)
         return [t.name for t in tl.teams.all()] if tl else []
 
     def get_team_leads(self, obj):
-        # filled by context (built once in the view)
         mapping = self.context.get("team_to_leads", {})
         return mapping.get(obj.team_id, [])
 
+    def get_pre_notify_late(self, obj):
+        """
+        Returns True if the employee has a PreNotice(kind='late')
+        for today's date or the date in context.
+        """
+        from .models import PreNotice
+        # try to get the date filter (lead/employees/?from=2025-11-06)
+        date_str = self.context.get("for_date")
+        if date_str:
+            from datetime import datetime
+            try:
+                target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            except Exception:
+                target_date = None
+        else:
+            from datetime import date
+            target_date = date.today()
+
+        return PreNotice.objects.filter(
+            employee=obj, kind="late", for_date=target_date
+        ).exists()
+
     class Meta:
-        model  = Employee
+        model = Employee
         fields = (
-            "id","username","email","team","designation","leave_balance",
-            "join_date","wfh_count","onsite_count",
-            "is_team_lead","lead_teams","team_leads",
+            "id", "username", "email", "team", "designation", "leave_balance",
+            "join_date", "wfh_count", "onsite_count",
+            "is_team_lead", "lead_teams", "team_leads",
+            "pre_notify_late",  # 👈 Include in output
         )
