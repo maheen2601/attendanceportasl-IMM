@@ -255,7 +255,6 @@
 
 
 // export default EmployeeList;
-
 // src/pages/LeadEmployees.js
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../utils/axiosInstance";
@@ -273,6 +272,7 @@ const HEADERS = [
   "Check-in",
   "Check-out",
   "Hours",
+  "Pre-Notify Late",
   "Status",
   "Date",
   "Actions",
@@ -301,6 +301,7 @@ function timeToHM(isoOrHHMM) {
     return "—";
   }
 }
+
 // "HH:MM" or ISO → minutes since midnight
 function toClockMinutes(isoOrHHMM) {
   if (!isoOrHHMM) return null;
@@ -415,6 +416,7 @@ export default function LeadEmployees() {
         const checkin_time = e.checkin_time ?? null;
         const checkout_time = e.checkout_time ?? null;
         const work_minutes = e.work_minutes ?? null;
+        const pre_notify_late = Boolean(e.pre_notify_late); // ✅ backend flag
 
         const present =
           wfh_count + onsite_count > 0 ||
@@ -437,6 +439,7 @@ export default function LeadEmployees() {
           checkout_time,
           work_minutes,
           avg_work_minutes,
+          pre_notify_late, // ✅ include in state
         };
       });
 
@@ -700,22 +703,36 @@ export default function LeadEmployees() {
 
           <tbody>
             {filteredEmployees.map((emp) => {
-              const statusChip = emp.present ? (
-                <span className="px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
-                  Present
-                </span>
-              ) : (
-                <span className="px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
-                  Absent
-                </span>
-              );
+              let statusChip;
+              if (emp.pre_notify_late) {
+                statusChip = (
+                  <span className="px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                    Late (Informed)
+                  </span>
+                );
+              } else if (emp.present) {
+                statusChip = (
+                  <span className="px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-700 border border-green-200">
+                    Present
+                  </span>
+                );
+              } else {
+                statusChip = (
+                  <span className="px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
+                    Absent
+                  </span>
+                );
+              }
 
               const dayCheckIn = isSingleDay ? (emp.checkin_time || "—") : "—";
               const dayCheckOut = isSingleDay ? (emp.checkout_time || "—") : "—";
               const dayHours = isSingleDay ? minutesToHM(emp.work_minutes) : "—";
 
               return (
-                <tr key={emp.id} className="hover:bg-gray-50">
+                <tr
+                  key={emp.id}
+                  className={`hover:bg-gray-50 ${emp.pre_notify_late ? "bg-yellow-50" : ""}`}
+                >
                   <td className="border px-4 py-2">
                     <button
                       onClick={() => openAttendance(emp)}
@@ -743,6 +760,18 @@ export default function LeadEmployees() {
                   <td className="border px-4 py-2">{dayCheckIn}</td>
                   <td className="border px-4 py-2">{dayCheckOut}</td>
                   <td className="border px-4 py-2">{dayHours}</td>
+
+                  <td className="border px-4 py-2 text-center">
+                    {emp.pre_notify_late ? (
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+                        Yes
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                        No
+                      </span>
+                    )}
+                  </td>
 
                   <td className="border px-4 py-2">{statusChip}</td>
                   <td className="border px-4 py-2">
