@@ -1972,7 +1972,7 @@ def _open_attendance(emp):
     return att
 
 
-STALE_OPEN_MAX_HOURS = 16  # or fetch from PolicySettings if you add a field there
+STALE_OPEN_MAX_HOURS = 9  # or fetch from PolicySettings if you add a field there
 
 MAX_TAG_LEN = 20
 
