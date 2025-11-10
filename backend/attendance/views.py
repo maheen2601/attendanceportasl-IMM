@@ -1,7 +1,3 @@
-
-
-
-# views.py
 from rest_framework import status, serializers
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -581,7 +577,7 @@ def check_in(request):
             "mode": mode,
             "check_in": now,
             "minutes_late": 0,     # always 0 in flex model
-            "tag": "Normal",            # keep compact 'normal' tag if you want, or set None
+            "tag": "Present",            # keep compact 'normal' tag if you want, or set None
         }
     )
     return Response(AttendanceSerializer(obj).data)
@@ -809,6 +805,8 @@ def me_dashboard(request):
     # ✅ NEW: include any open shift (yesterday or today)
     open_att = _open_attendance(emp)
     open_shift = None
+    auto_closed_shift = None
+
     if open_att:
         open_shift = {
             "id": open_att.id,
@@ -816,6 +814,23 @@ def me_dashboard(request):
             "check_in": open_att.check_in.isoformat() if open_att.check_in else None,
             "mode": open_att.mode,
         }
+    else:
+        # If no open shift, was something just auto-closed by the server?
+        now = timezone.now()
+        recent_acs = (Attendance.objects
+                      .filter(employee=emp, tag__icontains='acs')
+                      .order_by('-check_out')
+                      .first())
+        if recent_acs and recent_acs.check_out:
+            # consider “recent” as last 5 minutes; tweak if you like
+            if (now - recent_acs.check_out).total_seconds() <= 300:
+                auto_closed_shift = {
+                    "id": recent_acs.id,
+                    "date": recent_acs.date.isoformat(),
+                    "check_in": recent_acs.check_in.isoformat() if recent_acs.check_in else None,
+                    "auto_closed_at": recent_acs.check_out.isoformat(),
+                    "capped_hours": STALE_OPEN_MAX_HOURS,  # helpful context for the UI
+                }
 
     return Response({
         "profile": profile,
@@ -826,9 +841,9 @@ def me_dashboard(request):
         },
         "pending_leaves": pending_leaves,
         "trend": trend,
-        "open_shift": open_shift,  # <-- the key your front-end uses
+        "open_shift": open_shift,              # existing behavior
+        "auto_closed_shift": auto_closed_shift # ✅ NEW for the red banner
     })
-
 class LeaveRequestUpdateAPIView(UpdateAPIView):
     queryset = LeaveRequest.objects.all()
     permission_classes = [IsAdminUser]
@@ -1946,16 +1961,15 @@ def _open_attendance(emp):
            .order_by('-date', '-check_in')
            .first())
 
-    # If no record, return None
     if not att:
         return None
 
-    # ✅ Auto-close if it's older than 16 hours
+    # Auto-close if stale → treat as closed
     if att.check_in < sixteen_hours_ago:
         _force_close_stale(att, max_hours=STALE_OPEN_MAX_HOURS)
+        return None
 
     return att
-
 
 
 STALE_OPEN_MAX_HOURS = 16  # or fetch from PolicySettings if you add a field there
@@ -1969,7 +1983,7 @@ TAG_ALIAS = {
     "early_off_ok":     "eok",
     "late_uninf":       "lu",
     "late_inf":         "li",
-    "normal":           "Normal",
+    "normal":           "Present",
 }
 
 def _append_tag(att, new_tag):
