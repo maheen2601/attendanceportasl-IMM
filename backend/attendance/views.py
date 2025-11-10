@@ -581,7 +581,7 @@ def check_in(request):
             "mode": mode,
             "check_in": now,
             "minutes_late": 0,     # always 0 in flex model
-            "tag": "Present",            # keep compact 'normal' tag if you want, or set None
+            "tag": "Normal",            # keep compact 'normal' tag if you want, or set None
         }
     )
     return Response(AttendanceSerializer(obj).data)
@@ -1969,7 +1969,7 @@ TAG_ALIAS = {
     "early_off_ok":     "eok",
     "late_uninf":       "lu",
     "late_inf":         "li",
-    "normal":           "Present",
+    "normal":           "Normal",
 }
 
 def _append_tag(att, new_tag):
