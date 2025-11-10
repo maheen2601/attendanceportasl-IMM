@@ -479,21 +479,80 @@ def me_profile(request):
     emp = _get_employee(request.user)
     return Response(EmployeeProfileSerializer(emp).data)
 
+# @api_view(['POST'])
+# @permission_classes([IsAuthenticated])
+# def check_in(request):
+#     emp = _get_employee(request.user)
+
+#     open_att = _open_attendance(emp)
+#     if open_att:
+#         now = timezone.now()
+#         age = now - open_att.check_in if open_att.check_in else timedelta(0)
+
+#         if age > timedelta(hours=STALE_OPEN_MAX_HOURS):
+#             # Auto-close the stale open shift, then proceed with today's check-in
+#             _force_close_stale(open_att, max_hours=STALE_OPEN_MAX_HOURS)
+#         else:
+#             # Still fresh — block as before
+#             return Response(
+#                 {
+#                     "detail": (
+#                         f"You still have an open shift for {open_att.date.isoformat()} "
+#                         "that has not been checked out. Please check out first."
+#                     ),
+#                     "open_shift_date": open_att.date.isoformat(),
+#                     "open_shift_check_in": open_att.check_in.isoformat() if open_att.check_in else None,
+#                 },
+#                 status=409,
+#             )
+
+#     mode = (request.data.get("mode") or "").strip()
+#     if mode not in ["WFH","Onsite"]:
+#         return Response({"detail":"mode must be 'WFH' or 'Onsite'."}, status=400)
+
+#     settings = PolicySettings.get()
+#     today = date.today()
+#     now = timezone.now()
+
+#     shift_start_dt = timezone.make_aware(datetime.combine(today, emp.shift_start))
+#     grace_deadline = shift_start_dt + timedelta(minutes=settings.grace_minutes)
+
+#     informed = PreNotice.objects.filter(
+#         employee=emp, kind='late', for_date=today,
+#         created_at__lte=shift_start_dt - timedelta(minutes=settings.late_notice_minutes)
+#     ).exists()
+
+#     minutes_late = 0
+#     tag = 'normal'
+#     if now > grace_deadline:
+#         minutes_late = int((now - shift_start_dt).total_seconds() // 60)
+#         tag = 'late_inf' if informed else 'late_uninf'
+
+#     obj, _ = Attendance.objects.update_or_create(
+#         employee=emp, date=today,
+#         defaults={
+#             "status": "Present",
+#             "mode": mode,
+#             "check_in": now,
+#             "minutes_late": minutes_late,
+#             "tag": tag,
+#         }
+#     )
+#     return Response(AttendanceSerializer(obj).data)
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def check_in(request):
     emp = _get_employee(request.user)
 
+    # If there’s an old open shift hanging around, auto-close it (existing behavior)
     open_att = _open_attendance(emp)
     if open_att:
         now = timezone.now()
         age = now - open_att.check_in if open_att.check_in else timedelta(0)
-
         if age > timedelta(hours=STALE_OPEN_MAX_HOURS):
-            # Auto-close the stale open shift, then proceed with today's check-in
             _force_close_stale(open_att, max_hours=STALE_OPEN_MAX_HOURS)
         else:
-            # Still fresh — block as before
             return Response(
                 {
                     "detail": (
@@ -507,38 +566,30 @@ def check_in(request):
             )
 
     mode = (request.data.get("mode") or "").strip()
-    if mode not in ["WFH","Onsite"]:
-        return Response({"detail":"mode must be 'WFH' or 'Onsite'."}, status=400)
+    if mode not in ["WFH", "Onsite"]:
+        return Response({"detail": "mode must be 'WFH' or 'Onsite'."}, status=400)
 
-    settings = PolicySettings.get()
-    today = date.today()
+    # FLEX SHIFT: no fixed start time, no late/no-late tags, no minutes_late math
+    today = timezone.localdate()
     now = timezone.now()
 
-    shift_start_dt = timezone.make_aware(datetime.combine(today, emp.shift_start))
-    grace_deadline = shift_start_dt + timedelta(minutes=settings.grace_minutes)
-
-    informed = PreNotice.objects.filter(
-        employee=emp, kind='late', for_date=today,
-        created_at__lte=shift_start_dt - timedelta(minutes=settings.late_notice_minutes)
-    ).exists()
-
-    minutes_late = 0
-    tag = 'normal'
-    if now > grace_deadline:
-        minutes_late = int((now - shift_start_dt).total_seconds() // 60)
-        tag = 'late_inf' if informed else 'late_uninf'
-
     obj, _ = Attendance.objects.update_or_create(
-        employee=emp, date=today,
+        employee=emp,
+        date=today,
         defaults={
             "status": "Present",
             "mode": mode,
             "check_in": now,
-            "minutes_late": minutes_late,
-            "tag": tag,
+            "minutes_late": 0,     # always 0 in flex model
+            "tag": "n",            # keep compact 'normal' tag if you want, or set None
         }
     )
     return Response(AttendanceSerializer(obj).data)
+
+
+
+
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -839,18 +890,11 @@ def check_out(request):
 
     a = _open_attendance(emp)
     if not a:
-        # Check if already checked out today
         today = timezone.localdate()
         existing = Attendance.objects.filter(employee=emp, date=today).first()
         if existing and existing.check_out:
-            return Response(
-                {"detail": "You have already checked out for today."},
-                status=400
-            )
-        return Response(
-            {"detail": "No open check-in to check out."},
-            status=400
-        )
+            return Response({"detail": "You have already checked out for today."}, status=400)
+        return Response({"detail": "No open check-in to check out."}, status=400)
 
     settings = PolicySettings.get()
     now = timezone.now()
@@ -858,16 +902,16 @@ def check_out(request):
     try:
         a.check_out = now
 
-        # Tag if cross-midnight
+        # Keep cross-midnight tag for bookkeeping
         if now.date() != a.date:
             _append_tag(a, "cross_midnight")
 
-        # Early-off logic
+        # FLEX SHIFT: only enforce min hours (no relation to a start time)
         delta_hours = 0.0
         if a.check_in and a.check_out:
             delta_hours = max(0.0, (a.check_out - a.check_in).total_seconds() / 3600.0)
 
-        min_hours = float(settings.min_daily_hours or 0)
+        min_hours = float(settings.min_daily_hours or 0)  # e.g., 8.0
         approved_early = EarlyOffRequest.objects.filter(
             employee=emp, for_date=a.date, status='approved'
         ).exists()
@@ -1134,8 +1178,6 @@ def my_attendance_corrections(request):
 
 
 
-
-
 import re
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.response import Response
@@ -1174,7 +1216,7 @@ class AttendanceCorrectionAdminUpdate(RetrieveUpdateAPIView):
                 employee=emp,
                 date=instance.for_date,
                 defaults={"status": "Present", "mode": "WFH"},
-            )
+        )
 
             def to_dt(d, t):
                 if not t:
@@ -1192,9 +1234,7 @@ class AttendanceCorrectionAdminUpdate(RetrieveUpdateAPIView):
                 att.check_out = to_dt(instance.for_date, instance.want_check_out)
 
             # minutes late
-            emp_shift_start = getattr(emp, "shift_start", None) or datetime.strptime("09:00", "%H:%M").time()
-            shift_start = timezone.make_aware(datetime.combine(instance.for_date, emp_shift_start))
-            att.minutes_late = max(0, int(((att.check_in or shift_start) - shift_start).total_seconds() // 60))
+            att.minutes_late = 0
             att.tag = "corrected"
             att.status = "Present"
 
@@ -1214,6 +1254,7 @@ class AttendanceCorrectionAdminUpdate(RetrieveUpdateAPIView):
             att.save(update_fields=["check_in", "check_out", "minutes_late", "tag", "status", "mode"])
 
         return resp
+
 
 
 # ---------- helper to apply approved times to Attendance ----------
@@ -1352,49 +1393,55 @@ from .serializers import EmployeeListSerializer
 
 
 class EmployeeListAPIView(ListAPIView):
+    """
+    Shared view for Admin & Team Leads
+    Shows WFH/Onsite counts + Pre-Notify Late flag
+    Works with ?from=YYYY-MM-DD&to=YYYY-MM-DD
+    """
     serializer_class = EmployeeListSerializer
     permission_classes = [IsAdminOrTeamLead]
 
     def get_serializer_context(self):
         ctx = super().get_serializer_context()
-        # Build team_id -> [leader usernames] once
-        team_to_leads = {}
-        for tl in TeamLead.objects.select_related("user").prefetch_related("teams"):
-            uname = tl.user.username
-            for t in tl.teams.all():
-                team_to_leads.setdefault(t.id, []).append(uname)
-        ctx["team_to_leads"] = team_to_leads
+        ctx["team_to_leads"] = _team_leads_map()
+
+        # Parse date range
+        f = parse_date(self.request.query_params.get("from") or "")
+        t = parse_date(self.request.query_params.get("to") or "")
+        today = date.today()
+        f = f or today
+        t = t or today
+        if t < f:
+            t = f
+        if (t - f).days > 120:
+            t = f + timedelta(days=120)
+
+        ctx["from_date"] = f
+        ctx["to_date"] = t
         return ctx
 
     def get_queryset(self):
-        # date range (same as you had)
-        from datetime import date, timedelta
-        from django.db.models import Q, Count
-        f = (self.request.query_params.get("from") or "").strip()
-        t = (self.request.query_params.get("to")   or "").strip()
+        f = parse_date(self.request.query_params.get("from") or "")
+        t = parse_date(self.request.query_params.get("to") or "")
+        today = date.today()
+        f = f or today
+        t = t or today
+        if t < f:
+            t = f
+        if (t - f).days > 120:
+            t = f + timedelta(days=120)
 
-        if f and t:
-            try:
-                start = date.fromisoformat(f); end = date.fromisoformat(t)
-            except ValueError:
-                end = date.today(); start = end - timedelta(days=29)
-        else:
-            today = date.today()
-            start = today.replace(day=1); end = today
-
-        if end < start: end = start
-        if (end - start).days > 120: end = start + timedelta(days=120)
-
-        base = employee_scope_for(self.request)  # ← scope by role + ?team
+        base_qs = employee_scope_for(self.request)
 
         return (
-            base.annotate(
+            base_qs.select_related("user", "team")
+            .annotate(
                 wfh_count=Count(
                     "attendances",
                     filter=Q(
                         attendances__status="Present",
                         attendances__mode="WFH",
-                        attendances__date__range=(start, end),
+                        attendances__date__range=(f, t),
                     ),
                 ),
                 onsite_count=Count(
@@ -1402,13 +1449,12 @@ class EmployeeListAPIView(ListAPIView):
                     filter=Q(
                         attendances__status="Present",
                         attendances__mode="Onsite",
-                        attendances__date__range=(start, end),
+                        attendances__date__range=(f, t),
                     ),
                 ),
             )
             .order_by("user__username")
         )
-
 
 
 def lead_allowed_team_names(user):
@@ -1574,10 +1620,21 @@ def _employees_with_counts(qs, _from, _to):
 @api_view(["GET"])
 @permission_classes([IsAdminOrTeamLead])
 def admin_employees(request):
+    """
+    GET /api/admin/employees/?from=YYYY-MM-DD&to=YYYY-MM-DD
+    Works for both Admin and Team Leads (scoped via employee_scope_for).
+    Now includes pre_notify_late boolean per employee:
+      - If single day, True when a PreNotice(kind='late') exists for that date.
+      - If a range, True when any day in the range has a late prenotice.
+    """
+    # --- date range + single-day
     _from, _to = _parse_range(request)
+    single_day = (_from == _to)
 
+    # --- role-scoped employee queryset
     emp_qs = employee_scope_for(request).select_related("user", "team")
 
+    # --- aggregate WFH/Onsite in the range
     emp_qs = emp_qs.annotate(
         wfh_count=Count(
             "attendances",
@@ -1597,6 +1654,7 @@ def admin_employees(request):
         ),
     ).order_by("user__username")
 
+    # --- preload attendance rows for the grid (to show check-in/out & minutes)
     atts = Attendance.objects.filter(
         employee__in=emp_qs, date__range=(_from, _to)
     ).only("id","employee_id","date","status","mode","check_in","check_out")
@@ -1605,18 +1663,31 @@ def admin_employees(request):
     for a in atts:
         by_emp[a.employee_id].append(a)
 
-    # ✅ add this
+    # --- ✅ preload prenotices (late) for the range
+    pre_late = PreNotice.objects.filter(
+        kind="late",
+        for_date__range=(_from, _to),
+        employee__in=emp_qs,
+    ).values_list("employee_id", "for_date")
+
+    pre_late_map = defaultdict(set)  # emp_id -> {dates}
+    for emp_id, fdate in pre_late:
+        pre_late_map[emp_id].add(fdate)
+
+    # --- also include team leads list (as you had)
     leads_map = _team_leads_map()
 
-    single_day = (_from == _to)
+    # --- build response
     data = []
     for e in emp_qs:
         rows = by_emp.get(e.id, [])
 
+        # minutes & averages from present rows
         present_rows = [a for a in rows if a.status == "Present"]
         total_minutes = sum(_minutes_from_attendance(a) for a in present_rows)
         avg_work_minutes = int(round(total_minutes / len(present_rows))) if present_rows else 0
 
+        # details for a single day
         checkin_time = checkout_time = None
         work_minutes = None
         if single_day:
@@ -1625,6 +1696,12 @@ def admin_employees(request):
                 checkin_time  = _fmt_hhmm(todays.check_in)
                 checkout_time = _fmt_hhmm(todays.check_out)
                 work_minutes  = _minutes_from_attendance(todays)
+
+        # ✅ pre-notify flag logic
+        if single_day:
+            pre_notify_late = _from in pre_late_map.get(e.id, set())
+        else:
+            pre_notify_late = bool(pre_late_map.get(e.id))
 
         w = int(getattr(e, "wfh_count", 0) or 0)
         o = int(getattr(e, "onsite_count", 0) or 0)
@@ -1647,13 +1724,13 @@ def admin_employees(request):
             "work_minutes": work_minutes,
             "avg_work_minutes": avg_work_minutes,
 
-            # ✅ include team leads
             "team_leads": leads_map.get(e.team_id, []),
+
+            # ✅ NEW FIELD consumed by your React table
+            "pre_notify_late": pre_notify_late,
         })
 
-    return Response(data)
-
-    return Response(data)
+    return Response(data, status=200)
 def _minutes_from_attendance(att: "Attendance") -> int:
     """
     Return minutes worked for a single Attendance row.
@@ -1796,13 +1873,16 @@ from collections import defaultdict
 from .models import TeamLead
 
 def _team_leads_map():
-    """team_id -> [lead usernames]"""
-    m = defaultdict(list)
+    """team_id → [lead usernames]"""
+    mapping = defaultdict(list)
     for tl in TeamLead.objects.select_related("user").prefetch_related("teams"):
         uname = tl.user.username
         for t in tl.teams.all():
-            m[t.id].append(uname)
-    return m
+            mapping[t.id].append(uname)
+    return mapping
+
+
+
 @api_view(["GET"])
 @permission_classes([IsAdminOrTeamLead])
 def admin_employee_attendance(request):
@@ -1859,7 +1939,7 @@ def _open_attendance(emp):
     *but only if* it's not older than 16 hours.
     """
     now = timezone.now()
-    sixteen_hours_ago = now - timedelta(hours=16)
+    sixteen_hours_ago = now - timedelta(hours=STALE_OPEN_MAX_HOURS)
 
     att = (Attendance.objects
            .filter(employee=emp, check_in__isnull=False, check_out__isnull=True)
@@ -1872,8 +1952,7 @@ def _open_attendance(emp):
 
     # ✅ Auto-close if it's older than 16 hours
     if att.check_in < sixteen_hours_ago:
-        _force_close_stale(att, max_hours=16)
-        return None  # treat it as closed
+        _force_close_stale(att, max_hours=STALE_OPEN_MAX_HOURS)
 
     return att
 
@@ -1934,5 +2013,3 @@ def _force_close_stale(att, *, max_hours=STALE_OPEN_MAX_HOURS):
     # do NOT assign att.hours_worked here if it's a computed property
     att.save(update_fields=["check_out", "tag"])
     return att
-
-
