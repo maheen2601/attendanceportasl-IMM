@@ -39,7 +39,6 @@ export default function EmployeeDashboard() {
     month: { present: 0, absent: 0, leave: 0, wfh: 0, onsite: 0 },
     pending_leaves: 0,
     trend: [],
-    // keep keys present to avoid undefined checks
     open_shift: null,
     auto_closed_shift: null,
   });
@@ -147,7 +146,8 @@ export default function EmployeeDashboard() {
   };
 
   const checkOut = async () => {
-    if (!hasCheckedIn) {
+    // even if not hasCheckedIn, allow if open_shift exists
+    if (!hasCheckedIn && !data?.open_shift) {
       toast.info("You need to check-in before you can check-out.");
       return;
     }
@@ -171,9 +171,11 @@ export default function EmployeeDashboard() {
 
   const { profile, today, month, pending_leaves } = data;
 
-  // read the open shift from API and always show inline if it exists
   const openShift = data?.open_shift || null;
-  const showOpenInline = !!openShift; // <-- important: show for today or past days
+  const showOpenInline = !!openShift;
+
+  // ✅ New unified rule for enabling checkout button
+  const canCheckOut = (hasCheckedIn || !!openShift) && !hasCheckedOut && !acting;
 
   return (
     <div className="w-full min-h-screen bg-gray-100 px-6 py-10">
@@ -211,7 +213,7 @@ export default function EmployeeDashboard() {
               Use pre-notice if you’ll be late, then check-in/out (only once each).
             </div>
 
-            {/* The small inline info row */}
+            {/* Inline info row */}
             <div className="mt-2 text-xs text-gray-600">
               Today: <b>{todayRec.date}</b> · Check-in: <b>{fmtTime(todayRec.check_in)}</b>
               {todayRec.mode ? (
@@ -221,12 +223,13 @@ export default function EmployeeDashboard() {
               ) : null}
               {" "}· Check-out: <b>{fmtTime(todayRec.check_out)}</b>
 
-              {/* 🔴 Inline OPEN SHIFT message (always when open_shift exists) */}
+              {/* 🔴 Inline open shift message */}
               {showOpenInline && (
                 <>
                   {" "}·{" "}
                   <span className="text-red-600">
-                    Open shift: <b>{openShift.date}</b> (in <b>{fmtTime(openShift.check_in)}</b>) — please check out
+                    Open shift: <b>{openShift.date}</b> (in{" "}
+                    <b>{fmtTime(openShift.check_in)}</b>) — please check out
                   </span>
                 </>
               )}
@@ -260,7 +263,7 @@ export default function EmployeeDashboard() {
 
             <button
               onClick={checkOut}
-              disabled={!hasCheckedIn || hasCheckedOut || acting}
+              disabled={!canCheckOut}
               className="px-4 py-2 rounded-lg bg-gray-800 text-white hover:bg-gray-900 disabled:opacity-50"
             >
               Check-out
