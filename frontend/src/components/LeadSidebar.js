@@ -1,36 +1,45 @@
 // src/components/LeadSidebar.js
 import React, { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
   HomeIcon,
   UsersIcon,
   UserPlusIcon,
   ArrowRightOnRectangleIcon,
   ClockIcon,
-  DocumentCheckIcon,
+  CalendarDaysIcon,
+  PencilSquareIcon,
   ArrowLeftOnRectangleIcon,
+  ArrowUpTrayIcon,
+  DocumentCheckIcon,
 } from "@heroicons/react/24/outline";
 import ConfirmDialog from "./ConfirmDialog";
 
 export default function LeadSidebar() {
-  const location = useLocation();
   const navigate = useNavigate();
   const [confirm, setConfirm] = useState(false);
 
   const links = [
-    { to: "/lead-dashboard",       label: "Dashboard",          icon: <HomeIcon className="w-5 h-5" /> },
-    { to: "/lead/employees",       label: "Employees",          icon: <UsersIcon className="w-5 h-5" /> },
-    { to: "/lead/add-employee",    label: "Add Employee",       icon: <UserPlusIcon className="w-5 h-5" /> },
-    { to: "/lead/leave-requests",  label: "Leave Requests",     icon: <DocumentCheckIcon className="w-5 h-5" /> },
-    { to: "/lead/time-corrections",label: "Time Corrections",   icon: <ClockIcon className="w-5 h-5" /> },
-    { to: "/lead/early-off",       label: "Early-off Requests", icon: <ArrowRightOnRectangleIcon className="w-5 h-5" /> },
+    // Lead overview
+    { to: "/lead-dashboard", label: "Dashboard", icon: <HomeIcon className="w-5 h-5" />, exact: true },
+    { to: "/lead/employees", label: "Employees", icon: <UsersIcon className="w-5 h-5" /> },
+    { to: "/lead/add-employee", label: "Add Employee", icon: <UserPlusIcon className="w-5 h-5" />, exact: true },
+
+    // Team approvals
+    { to: "/lead/leave-requests", label: "Employee Leave Requests", icon: <DocumentCheckIcon className="w-5 h-5" /> },
+
+    // Self-service area for the lead
+    { to: "/lead/my-attendance", label: "My Attendance", icon: <CalendarDaysIcon className="w-5 h-5" />, exact: true },
+    { to: "/lead/leave-request", label: "My Leave Request", icon: <PencilSquareIcon className="w-5 h-5" />, exact: true },
+    { to: "/lead/my-early-off", label: "My Early-off", icon: <ArrowUpTrayIcon className="w-5 h-5" />, exact: true },
+
+    // Operational tools (team lead role)
+    { to: "/lead/time-corrections", label: "Time Corrections", icon: <ClockIcon className="w-5 h-5" /> },
+    { to: "/lead/early-off-requests", label: "Early-off Requests", icon: <ArrowRightOnRectangleIcon className="w-5 h-5" /> },
   ];
 
   const logout = () => {
-    localStorage.removeItem("access");
-    localStorage.removeItem("refresh");
-    localStorage.removeItem("role");
-    localStorage.removeItem("username");
+    localStorage.clear();
     navigate("/login", { replace: true });
   };
 
@@ -41,22 +50,23 @@ export default function LeadSidebar() {
       </div>
 
       <nav className="flex-1 px-4 py-6 space-y-2">
-        {links.map(({ to, label, icon }) => {
-          const active = location.pathname.startsWith(to);
-          return (
-            <Link
-              key={to}
-              to={to}
-              className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-all ${
-                active ? "bg-gray-800 text-yellow-300"
+        {links.map(({ to, label, icon, exact }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={!!exact}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-4 py-2 rounded-lg transition-all ${
+                isActive
+                  ? "bg-gray-800 text-yellow-300"
                   : "text-gray-300 hover:bg-gray-800 hover:text-white"
-              }`}
-            >
-              {icon}
-              <span>{label}</span>
-            </Link>
-          );
-        })}
+              }`
+            }
+          >
+            {icon}
+            <span>{label}</span>
+          </NavLink>
+        ))}
       </nav>
 
       <div className="px-4 pb-5">
