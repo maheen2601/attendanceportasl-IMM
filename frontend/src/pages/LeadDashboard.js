@@ -1,4 +1,3 @@
-// src/pages/AdminDashboard.js
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../utils/axiosInstance";
 import {
@@ -7,6 +6,7 @@ import {
   LineChart, Line,
   PieChart, Pie, Cell,
 } from "recharts";
+import { toast } from "react-toastify";
 
 const COLORS = ["#8b5cf6", "#06b6d4", "#f43f5e", "#10b981", "#60a5fa", "#f59e0b"];
 
@@ -15,9 +15,141 @@ const fmt = (d) => d.toISOString().slice(0, 10);
 const todayStr = () => fmt(new Date());
 const daysAgoStr = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return fmt(d); };
 
+function fmtTime(t) {
+  if (!t) return "—";
+  try {
+    if (typeof t === "string" && /^\d{2}:\d{2}$/.test(t)) return t; // "HH:MM"
+    return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return String(t);
+  }
+}
+const todayYMD = () => new Date().toISOString().slice(0, 10);
+
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+
+  /* ---------- Lead's own quick-attendance state ---------- */
+  const [acting, setActing] = useState(false);
+  const [lateNotified, setLateNotified] = useState(false);
+  const [todayRec, setTodayRec] = useState({
+    date: todayYMD(),
+    check_in: null,
+    check_out: null,
+    mode: null,
+  });
+  const hasCheckedIn = Boolean(todayRec.check_in);
+  const hasCheckedOut = Boolean(todayRec.check_out);
+
+  // NEW: meta for open/auto-closed banners
+  const [openShift, setOpenShift] = useState(null);
+  const [autoClosed, setAutoClosed] = useState(null);
+
+  // init pre-notice memory (per-day)
+  useEffect(() => {
+    const key = `late_prenotify:${todayYMD()}`;
+    setLateNotified(localStorage.getItem(key) === "1");
+  }, []);
+
+  const loadMyToday = async () => {
+    try {
+      const res = await api.get("me/attendance/", { params: { days: 1 } });
+      const rows = Array.isArray(res.data) ? res.data : [];
+      const r = rows.find(x => x.date === todayYMD()) || rows[0] || null;
+      setTodayRec({
+        date: r?.date || todayYMD(),
+        check_in: r?.check_in || r?.checked_in_at || null,
+        check_out: r?.check_out || r?.checked_out_at || null,
+        mode: r?.mode || null,
+      });
+    } catch {
+      // silent
+    }
+  };
+
+  // NEW: load my dashboard meta (open_shift / auto_closed_shift)
+  const loadMyDashMeta = async () => {
+    try {
+      const res = await api.get("me/dashboard/");
+      setOpenShift(res.data?.open_shift || null);
+      setAutoClosed(res.data?.auto_closed_shift || null);
+    } catch {
+      setOpenShift(null);
+      setAutoClosed(null);
+    }
+  };
+
+  const notifyLate = async () => {
+    if (hasCheckedIn) {
+      toast.info("You’re already checked in — late pre-notice no longer applies.");
+      return;
+    }
+    if (lateNotified) {
+      toast.info("You already notified your lead for today.");
+      return;
+    }
+    if (acting) return;
+    setActing(true);
+    try {
+      await api.post("me/attendance/pre-notice/late/");
+      toast.success("Late pre-notice sent ✅");
+      setLateNotified(true);
+      localStorage.setItem(`late_prenotify:${todayYMD()}`, "1");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not send pre-notice.");
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const checkIn = async (mode) => {
+    if (hasCheckedIn) {
+      toast.info(
+        `Already checked-in${todayRec.mode ? ` (${todayRec.mode})` : ""} at ${fmtTime(todayRec.check_in)}.`
+      );
+      return;
+    }
+    if (acting) return;
+    setActing(true);
+    try {
+      await api.post("me/attendance/check-in/", { mode });
+      toast.success(`Checked-in (${mode}).`);
+      await Promise.all([loadMyToday(), loadMyDashMeta()]);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not check-in.");
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const checkOut = async () => {
+    // ✅ Allow checkout if either today's check-in exists OR an older open_shift exists
+    if (!hasCheckedIn && !openShift) {
+      toast.info("You need to check-in before you can check-out.");
+      return;
+    }
+
+    if (hasCheckedOut) {
+      toast.info(`Already checked-out at ${fmtTime(todayRec.check_out)}.`);
+      return;
+    }
+
+    if (acting) return;
+
+    setActing(true);
+    try {
+      await api.post("me/attendance/check-out/");
+      toast.success("Checked-out.");
+      await Promise.all([loadMyToday(), loadMyDashMeta()]);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not check-out.");
+    } finally {
+      setActing(false);
+    }
+  };
+  /* ------------------------------------------------------- */
+
   const [stats, setStats] = useState({
     total_employees: 0,
     present_today: 0,
@@ -46,7 +178,7 @@ export default function AdminDashboard() {
       const params = {};
       if (from) params.from = from;
       if (to) params.to = to;
-      if (selectedTeams.length > 0) params.team = selectedTeams; // sends ?team=A&team=B
+      if (selectedTeams.length > 0) params.team = selectedTeams; // ?team=A&team=B
 
       const res = await api.get("dashboard-stats/", { params });
       setStats(res.data || {});
@@ -64,7 +196,7 @@ export default function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [from, to, JSON.stringify(selectedTeams)]);
 
-  // fetch available teams ONCE; backend already restricts list for leads
+  // fetch available teams ONCE
   useEffect(() => {
     let ignore = false;
     (async () => {
@@ -72,11 +204,14 @@ export default function AdminDashboard() {
         const res = await api.get("admin/teams/"); // -> [{id, name}, ...]
         if (!ignore) setTeamOptions((res.data || []).map((t) => t.name));
       } catch {
-        if (!ignore) setTeamOptions([]); // fail silent; dropdown will show "No matches"
+        if (!ignore) setTeamOptions([]);
       }
     })();
     return () => { ignore = true; };
   }, []);
+
+  // also load my-today & my-meta once
+  useEffect(() => { loadMyToday(); loadMyDashMeta(); }, []);
 
   const {
     total_employees = 0,
@@ -113,19 +248,29 @@ export default function AdminDashboard() {
     { name: "Onsite", value: Number(onsite) },
   ];
 
-  const applyRange = (e) => {
+  const applyRange = async (e) => {
     e?.preventDefault?.();
     if (!from || !to) return;
-    fetchStats();
+    await fetchStats();
+    await Promise.all([loadMyToday(), loadMyDashMeta()]);
   };
 
-  const resetRange = () => {
+  const resetRange = async () => {
     const f = daysAgoStr(6);
     const t = todayStr();
     setFrom(f);
     setTo(t);
-    setSelectedTeams([]); // also reset teams to All
+    setSelectedTeams([]);
+    await fetchStats();
+    await Promise.all([loadMyToday(), loadMyDashMeta()]);
   };
+
+  // Banner visibility
+  const showOpenBanner = !!openShift && openShift.date !== todayYMD(); // yesterday or older
+  const showAutoClosedBanner = !!autoClosed;
+
+  // Inline notice visibility
+  const showOpenInline = !!openShift;
 
   return (
     <div className="w-full min-h-screen bg-gradient-to-b from-gray-50 to-white px-6 py-10">
@@ -168,7 +313,7 @@ export default function AdminDashboard() {
             </button>
           </form>
 
-          {/* Team filter: dropdown multi-select */}
+          {/* Team filter */}
           <div className="flex flex-col">
             <label className="text-sm text-gray-600 mb-1">Teams:</label>
             <TeamMultiDropdown
@@ -189,9 +334,99 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {loading && <div className="mt-4">Loading…</div>}
+      {/* ---------- Red alerts for open / auto-closed shifts ---------- */}
+      {(!loading) && (showOpenBanner || showAutoClosedBanner) && (
+        <div className="mt-4 mb-6 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-red-800">
+          {showOpenBanner && (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <b>Open shift detected</b> from <b>{openShift.date}</b>. Please check out to close it.
+              </div>
+              <button
+                onClick={checkOut}
+                className="px-3 py-1.5 rounded bg-red-600 text-white text-sm hover:bg-red-700"
+              >
+                Check-out now
+              </button>
+            </div>
+          )}
+          {showAutoClosedBanner && (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <b>Stale shift auto-closed</b> (from <b>{autoClosed.date}</b>) at{" "}
+                <b>{fmtTime(autoClosed.auto_closed_at)}</b>. Maximum counted hours capped at{" "}
+                <b>{autoClosed.capped_hours ?? 16}h</b>. Please remember to check out next time.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {/* ------------------------------------------------------------------- */}
+
+      {/* ---------- My Quick Attendance panel ---------- */}
+      <div className="bg-white rounded-xl border p-4 mt-2 mb-8">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <div className="text-gray-700 font-semibold">My Quick Attendance</div>
+            <div className="text-sm text-gray-500">
+              Use pre-notice if you’ll be late, then check-in/out (only once each).
+            </div>
+
+            {/* The small inline info row */}
+            <div className="mt-2 text-xs text-gray-600">
+              Today: <b>{todayRec.date}</b> · Check-in: <b>{fmtTime(todayRec.check_in)}</b>
+              {todayRec.mode ? <> (<b>{todayRec.mode}</b>)</> : null}
+              {" "}· Check-out: <b>{fmtTime(todayRec.check_out)}</b>
+
+              {/* 🔴 Inline OPEN SHIFT message (always when open_shift exists) */}
+              {showOpenInline && (
+                <>
+                  {" "}·{" "}
+                  <span className="text-red-600">
+                    Open shift: <b>{openShift.date}</b> (in{" "}
+                    <b>{fmtTime(openShift.check_in || openShift.checked_in_at)}</b>) — please check out
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={notifyLate}
+              disabled={hasCheckedIn || lateNotified || acting}
+              className="px-4 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+            >
+              {lateNotified ? "Pre-notified" : "Pre-notify Late"}
+            </button>
+            <button
+              onClick={() => checkIn("WFH")}
+              disabled={hasCheckedIn || acting}
+              className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+            >
+              Check-in (WFH)
+            </button>
+            <button
+              onClick={() => checkIn("Onsite")}
+              disabled={hasCheckedIn || acting}
+              className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              Check-in (Onsite)
+            </button>
+            <button
+              onClick={checkOut}
+              disabled={!((hasCheckedIn || !!openShift) && !hasCheckedOut) || acting}
+              className="px-4 py-2 rounded-lg bg-gray-800 text-white hover:bg-gray-900 disabled:opacity-50"
+            >
+              Check-out
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {loading && <div className="mt-2">Loading…</div>}
       {err && !loading && (
-        <div className="mt-4 mb-4 p-3 rounded bg-red-50 text-red-700 border border-red-200">
+        <div className="mt-2 mb-4 p-3 rounded bg-red-50 text-red-700 border border-red-200">
           {err}
         </div>
       )}
@@ -451,24 +686,17 @@ function SelectedTeamsStatCard({ selectedTeams, onClear }) {
 
   return (
     <div className="group relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-all w-[300px]">
-      {/* same top gradient ribbon as KPI cards */}
       <div className="pointer-events-none absolute inset-x-0 -top-1 h-1 bg-gradient-to-r from-sky-500/20 to-indigo-500/20" />
-
       <div className="flex items-start gap-4">
         <Icon
           kind="filter"
           className="h-10 w-10 rounded-xl bg-gray-50 p-2 text-gray-700 group-hover:scale-105 transition-transform"
         />
-
         <div className="min-w-0 flex-1">
           <div className="text-sm text-gray-500">Selected Teams</div>
-
-          {/* Headline mirrors KPI number line */}
           <div className="mt-1 text-2xl font-bold text-gray-900">
             {none ? "All teams" : `${selectedTeams.length} selected`}
           </div>
-
-          {/* Chips / clear */}
           <div className="mt-2 flex items-center gap-2">
             {none ? (
               <span className="text-xs text-gray-500">No filter</span>
@@ -485,7 +713,6 @@ function SelectedTeamsStatCard({ selectedTeams, onClear }) {
                 ))}
               </div>
             )}
-
             {!none && (
               <button
                 type="button"
