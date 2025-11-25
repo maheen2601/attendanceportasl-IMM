@@ -9,6 +9,8 @@ import {
 import { toast } from "react-toastify";
 
 const COLORS = ["#8b5cf6", "#06b6d4", "#f43f5e", "#10b981", "#60a5fa", "#f59e0b"];
+const LEAVE_COLORS = ["#22c55e", "#f97316"];       // On Leave: green, Not on Leave: orange
+const EARLY_OFF_COLORS = ["#f97316", "#0ea5e9"];   // Early Off: orange, Completed: sky blue
 
 /* small date helpers */
 const fmt = (d) => d.toISOString().slice(0, 10);
@@ -171,6 +173,9 @@ export default function AdminDashboard() {
   // ---- Dynamic team options from API (scoped on the server for lead/admin)
   const [teamOptions, setTeamOptions] = useState([]);
 
+  // NEW: date for Leave donut (defaults to today; synced with range)
+  const [leaveDate, setLeaveDate] = useState(() => todayStr());
+
   const fetchStats = async () => {
     setLoading(true);
     setErr("");
@@ -223,6 +228,21 @@ export default function AdminDashboard() {
     range = {},
   } = stats;
 
+  const totalEmployees = Number(total_employees ?? 0);
+  const earlyOffCount = Number(stats.early_off_count ?? 0); // may be 0 if backend doesn't send it
+
+  const rangeFrom = range?.from || from;
+  const rangeTo = range?.to || to;
+
+  // NEW: keep leaveDate in-range if backend changes rangeFrom/rangeTo
+  useEffect(() => {
+    if (!rangeTo) return;
+    setLeaveDate((prev) => {
+      if (!prev || prev < rangeFrom || prev > rangeTo) return rangeTo;
+      return prev;
+    });
+  }, [rangeFrom, rangeTo]);
+
   // Normalize trend → oldest → newest
   const lineData = useMemo(() => {
     const raw = Array.isArray(stats.trend) ? stats.trend : [];
@@ -247,6 +267,41 @@ export default function AdminDashboard() {
     { name: "WFH", value: Number(wfh) },
     { name: "Onsite", value: Number(onsite) },
   ];
+
+  // NEW: Leave vs Not-on-leave donut data for selected date (based on trend)
+  const leaveDonutData = useMemo(() => {
+    const raw = Array.isArray(stats.trend) ? stats.trend : [];
+    if (!leaveDate) {
+      return [
+        { name: "On Leave", value: 0 },
+        { name: "Not on Leave", value: 0 },
+      ];
+    }
+    const match = raw.find((d) => d.date === leaveDate);
+    if (!match) {
+      return [
+        { name: "On Leave", value: 0 },
+        { name: "Not on Leave", value: 0 },
+      ];
+    }
+    const total = Number(match.total ?? 0);
+    const leave = Number(match.leave ?? 0);
+    const notLeave = Math.max(0, total - leave);
+    return [
+      { name: "On Leave", value: leave },
+      { name: "Not on Leave", value: notLeave },
+    ];
+  }, [stats.trend, leaveDate]);
+
+  // NEW: Early Off vs Completed / Not Early Off donut
+  const earlyOffDonutData = useMemo(() => {
+    const early = earlyOffCount;
+    const nonEarly = Math.max(0, totalEmployees - early);
+    return [
+      { name: "Early Off", value: early },
+      { name: "Completed / Not Early Off", value: nonEarly },
+    ];
+  }, [earlyOffCount, totalEmployees]);
 
   const applyRange = async (e) => {
     e?.preventDefault?.();
@@ -435,17 +490,17 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 mt-4">
         <StatCard title="Total Employees" value={total_employees}
           accent="from-violet-500/20 to-fuchsia-500/20" icon="users" />
-        <StatCard title={`Present (${range?.to || to})`} value={present_today}
+        <StatCard title={`Present (${rangeTo})`} value={present_today}
           accent="from-emerald-500/20 to-teal-500/20" icon="check" />
-        <StatCard title={`Absent (${range?.to || to})`} value={absent_today}
+        <StatCard title={`Absent (${rangeTo})`} value={absent_today}
           accent="from-rose-500/20 to-orange-500/20" icon="x" />
         <StatCard title="Leave Pending" value={leave_pending}
           accent="from-sky-500/20 to-indigo-500/20" icon="clock" />
       </div>
 
-      {/* Charts */}
+      {/* Charts row 1 */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <ChartCard title={`Attendance on ${range?.to || to}`} subtitle="Present vs Absent">
+        <ChartCard title={`Attendance on ${rangeTo}`} subtitle="Present vs Absent">
           <ChartGradients />
           <div className="h-64">
             {todayBarData.every((d) => d.value === 0) ? (
@@ -465,7 +520,7 @@ export default function AdminDashboard() {
           </div>
         </ChartCard>
 
-        <ChartCard title={`WFH vs Onsite (${range?.to || to})`} subtitle="Work mode distribution">
+        <ChartCard title={`WFH vs Onsite (${rangeTo})`} subtitle="Work mode distribution">
           <div className="h-64">
             {modePieData.every((d) => d.value === 0) ? (
               <EmptyState />
@@ -486,7 +541,7 @@ export default function AdminDashboard() {
           </div>
         </ChartCard>
 
-        <ChartCard title="Attendance Trend" subtitle={`${range?.from || from} — ${range?.to || to}`}>
+        <ChartCard title="Attendance Trend" subtitle={`${rangeFrom} — ${rangeTo}`}>
           <ChartGradients />
           <div className="h-64">
             {lineData.length === 0 ? (
@@ -503,6 +558,96 @@ export default function AdminDashboard() {
                   <Line type="monotone" dataKey="Present" stroke="url(#lineGreen)"  strokeWidth={2.5} dot={{ r: 3 }} />
                   <Line type="monotone" dataKey="Total"   stroke="url(#lineIndigo)" strokeWidth={2.5} dot={{ r: 3 }} />
                 </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </ChartCard>
+      </div>
+
+      {/* Charts row 2: Leave status + Early off donuts */}
+      <div className="mt-6 grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* Leave vs Not-on-leave with its own date filter */}
+        <ChartCard
+          title="Leave Status"
+          subtitle={
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-gray-500">
+                On-leave vs not-on-leave for selected date
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Date:</span>
+                <input
+                  type="date"
+                  value={leaveDate}
+                  min={rangeFrom}
+                  max={rangeTo}
+                  onChange={(e) => setLeaveDate(e.target.value)}
+                  className="border rounded-lg px-2 py-1 text-xs"
+                />
+              </div>
+            </div>
+          }
+        >
+          <div className="h-64">
+            {leaveDonutData.every((d) => d.value === 0) ? (
+              <EmptyState />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Tooltip content={<NiceTooltip />} />
+                  <Legend />
+                  <Pie
+                    data={leaveDonutData}
+                    dataKey="value"
+                    nameKey="name"
+                    outerRadius={95}
+                    innerRadius={50}
+                    paddingAngle={3}
+                    label
+                  >
+                    {leaveDonutData.map((_, idx) => (
+                      <Cell
+                        key={idx}
+                        fill={LEAVE_COLORS[idx % LEAVE_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </ChartCard>
+
+        {/* Early off vs not-early-off in current range */}
+        <ChartCard
+          title="Early Off vs Completed Shift"
+          subtitle={`Range: ${rangeFrom} — ${rangeTo}`}
+        >
+          <div className="h-64">
+            {earlyOffDonutData.every((d) => d.value === 0) ? (
+              <EmptyState />
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Tooltip content={<NiceTooltip />} />
+                  <Legend />
+                  <Pie
+                    data={earlyOffDonutData}
+                    dataKey="value"
+                    nameKey="name"
+                    outerRadius={95}
+                    innerRadius={50}
+                    paddingAngle={3}
+                    label
+                  >
+                    {earlyOffDonutData.map((_, idx) => (
+                      <Cell
+                        key={idx}
+                        fill={EARLY_OFF_COLORS[idx % EARLY_OFF_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                </PieChart>
               </ResponsiveContainer>
             )}
           </div>
