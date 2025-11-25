@@ -6,7 +6,8 @@ import {
   UsersIcon,
   UserPlusIcon,
   ChartBarIcon,
-  ClockIcon,                 // 👈 new
+  ClockIcon,      
+  CalendarDaysIcon,             // 👈 new
   ArrowLeftOnRectangleIcon,
   ArrowRightOnRectangleIcon
 } from "@heroicons/react/24/outline";
@@ -17,16 +18,21 @@ const Sidebar = () => {
   const navigate = useNavigate();
   const [showLogout, setShowLogout] = useState(false);
 
-  const links = [
+    const links = [
     { to: "/admin-dashboard",      label: "Dashboard",       icon: <HomeIcon className="w-5 h-5" /> },
     { to: "/admin/employees",      label: "Employees",       icon: <UsersIcon className="w-5 h-5" /> },
     { to: "/admin/add-employee",   label: "Add Employee",    icon: <UserPlusIcon className="w-5 h-5" /> },
     { to: "/admin/leave-requests", label: "Leave Requests",  icon: <ChartBarIcon className="w-5 h-5" /> },
-    // NEW: admin can approve/reject time change requests
+
+    // NEW: admin’s own attendance + leaves (reusing employee self APIs)
+    { to: "/admin/my-attendance",  label: "My Attendance",   icon: <ClockIcon className="w-5 h-5" /> },
+    { to: "/admin/my-leaves",      label: "My Leaves",       icon: <CalendarDaysIcon className="w-5 h-5" /> },
+
+    // (optional) future items:
     // { to: "/admin/time-corrections", label: "Time Change Requests", icon: <ClockIcon className="w-5 h-5" /> },
-    // { to: '/admin/earlyoff', label: 'Early-off Requests', icon: <ArrowRightOnRectangleIcon className="w-5 h-5" /> },
-    
+    // { to: "/admin/earlyoff",         label: "Early-off Requests",   icon: <ArrowRightOnRectangleIcon className="w-5 h-5" /> },
   ];
+
 
   const handleLogout = () => {
     localStorage.removeItem("access");
@@ -85,8 +91,13 @@ const Sidebar = () => {
           handleLogout();
         }}
       />
+       
     </div>
   );
 };
 
+
+
 export default Sidebar;
+
+
