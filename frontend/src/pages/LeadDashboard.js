@@ -157,8 +157,22 @@ export default function AdminDashboard() {
     present_today: 0,
     absent_today: 0,
     leave_pending: 0,
+
+    // daily snapshot
+    wfh_today: 0,
+    onsite_today: 0,
+
+    // range-based stats
+    wfh_range: 0,
+    onsite_range: 0,
+    leave_in_range: 0,
+    avg_work_hours: 0,
+    early_off_count: 0,
+
+    // legacy keys (fallback)
     wfh: 0,
     onsite: 0,
+
     trend: [],
     range: { from: "", to: "" },
   });
@@ -223,16 +237,49 @@ export default function AdminDashboard() {
     present_today = 0,
     absent_today = 0,
     leave_pending = 0,
+    wfh_today = 0,
+    onsite_today = 0,
+    wfh_range = 0,
+    onsite_range = 0,
+    leave_in_range = 0,
+    avg_work_hours = 0,
+    early_off_count = 0,
     wfh = 0,
     onsite = 0,
     range = {},
   } = stats;
 
   const totalEmployees = Number(total_employees ?? 0);
-  const earlyOffCount = Number(stats.early_off_count ?? 0); // may be 0 if backend doesn't send it
+
+  const presentToday = Number(present_today ?? 0);
+  const absentToday = Number(absent_today ?? 0);
+
+  const wfhToday = Number(wfh_today ?? wfh ?? 0);
+  const onsiteToday = Number(onsite_today ?? onsite ?? 0);
+
+  const wfhRange = Number(wfh_range ?? wfh ?? 0);
+  const onsiteRange = Number(onsite_range ?? onsite ?? 0);
+  const leaveInRange = Number(leave_in_range ?? 0);
+
+  const avgWorkHours = Number(avg_work_hours ?? 0);
+  const earlyOffCount = Number(early_off_count ?? stats.early_off_count ?? 0);
 
   const rangeFrom = range?.from || from;
   const rangeTo = range?.to || to;
+
+  // percentages for KPI cards
+  const pctPresent = totalEmployees
+    ? Math.round((presentToday / totalEmployees) * 100)
+    : 0;
+  const pctAbsent = totalEmployees
+    ? Math.round((absentToday / totalEmployees) * 100)
+    : 0;
+  const pctWfh = totalEmployees
+    ? Math.round((wfhToday / totalEmployees) * 100)
+    : 0;
+  const pctOnsite = totalEmployees
+    ? Math.round((onsiteToday / totalEmployees) * 100)
+    : 0;
 
   // NEW: keep leaveDate in-range if backend changes rangeFrom/rangeTo
   useEffect(() => {
@@ -259,13 +306,14 @@ export default function AdminDashboard() {
   }, [stats.trend]);
 
   const todayBarData = [
-    { name: "Present", value: Number(present_today) },
-    { name: "Absent", value: Number(absent_today) },
+    { name: "Present", value: presentToday },
+    { name: "Absent", value: absentToday },
   ];
 
+  // use RANGE-based values for this donut
   const modePieData = [
-    { name: "WFH", value: Number(wfh) },
-    { name: "Onsite", value: Number(onsite) },
+    { name: "WFH", value: wfhRange },
+    { name: "Onsite", value: onsiteRange },
   ];
 
   // NEW: Leave vs Not-on-leave donut data for selected date (based on trend)
@@ -326,6 +374,11 @@ export default function AdminDashboard() {
 
   // Inline notice visibility
   const showOpenInline = !!openShift;
+
+  const formatAvgHours = (h) => {
+    if (!h || Number.isNaN(h)) return "0.0";
+    return h.toFixed(1);
+  };
 
   return (
     <div className="w-full min-h-screen bg-gradient-to-b from-gray-50 to-white px-6 py-10">
@@ -486,16 +539,88 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* KPIs */}
+      {/* KPIs row 1 – core counts */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8 mt-4">
-        <StatCard title="Total Employees" value={total_employees}
-          accent="from-violet-500/20 to-fuchsia-500/20" icon="users" />
-        <StatCard title={`Present (${rangeTo})`} value={present_today}
-          accent="from-emerald-500/20 to-teal-500/20" icon="check" />
-        <StatCard title={`Absent (${rangeTo})`} value={absent_today}
-          accent="from-rose-500/20 to-orange-500/20" icon="x" />
-        <StatCard title="Leave Pending" value={leave_pending}
-          accent="from-sky-500/20 to-indigo-500/20" icon="clock" />
+        <StatCard
+          title="Total Employees"
+          value={total_employees}
+          accent="from-violet-500/20 to-fuchsia-500/20"
+          icon="users"
+        />
+        <StatCard
+          title={`Present (${rangeTo})`}
+          value={present_today}
+          accent="from-emerald-500/20 to-teal-500/20"
+          icon="check"
+        />
+        <StatCard
+          title={`Absent (${rangeTo})`}
+          value={absent_today}
+          accent="from-rose-500/20 to-orange-500/20"
+          icon="x"
+        />
+        <StatCard
+          title="Leave Pending"
+          value={leave_pending}
+          accent="from-sky-500/20 to-indigo-500/20"
+          icon="clock"
+        />
+      </div>
+
+      {/* KPIs row 2 – range summary (WFH/Onsite/Leave/Avg hours) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <StatCard
+          title={`WFH in Range`}
+          value={wfhRange}
+          accent="from-cyan-500/20 to-sky-500/20"
+          icon="check"
+        />
+        <StatCard
+          title={`Onsite in Range`}
+          value={onsiteRange}
+          accent="from-lime-500/20 to-emerald-500/20"
+          icon="check"
+        />
+        <StatCard
+          title="On Leave in Range"
+          value={leaveInRange}
+          accent="from-amber-500/20 to-orange-500/20"
+          icon="clock"
+        />
+        <StatCard
+          title="Avg Work Hours (Range)"
+          value={formatAvgHours(avgWorkHours)}
+          accent="from-slate-500/20 to-gray-500/20"
+          icon="clock"
+        />
+      </div>
+
+      {/* KPIs row 3 – percentages & early off */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <StatCard
+          title="Present % (Today)"
+          value={`${pctPresent}%`}
+          accent="from-emerald-500/20 to-green-500/20"
+          icon="check"
+        />
+        <StatCard
+          title="Absent % (Today)"
+          value={`${pctAbsent}%`}
+          accent="from-rose-500/20 to-red-500/20"
+          icon="x"
+        />
+        <StatCard
+          title="WFH % (Today)"
+          value={`${pctWfh}%`}
+          accent="from-cyan-500/20 to-blue-500/20"
+          icon="check"
+        />
+        <StatCard
+          title="Early Off (Range)"
+          value={earlyOffCount}
+          accent="from-orange-500/20 to-amber-500/20"
+          icon="clock"
+        />
       </div>
 
       {/* Charts row 1 */}
@@ -529,8 +654,15 @@ export default function AdminDashboard() {
                 <PieChart>
                   <Tooltip content={<NiceTooltip />} />
                   <Legend />
-                  <Pie data={modePieData} dataKey="value" nameKey="name"
-                       outerRadius={95} innerRadius={50} paddingAngle={3} label>
+                  <Pie
+                    data={modePieData}
+                    dataKey="value"
+                    nameKey="name"
+                    outerRadius={95}
+                    innerRadius={50}
+                    paddingAngle={3}
+                    label
+                  >
                     {modePieData.map((_, idx) => (
                       <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                     ))}
@@ -683,8 +815,10 @@ function TeamMultiDropdown({ options = [], selected = [], onChange }) {
   };
 
   const selectAll = () => onChange([]);
-  const selectFiltered = () => onChange(Array.from(new Set([...selected, ...filtered.map(f => f.value)])));
-  const clearFiltered = () => onChange(selected.filter(v => !filtered.some(f => f.value === v)));
+  const selectFiltered = () =>
+    onChange(Array.from(new Set([...selected, ...filtered.map(f => f.value)])));
+  const clearFiltered = () =>
+    onChange(selected.filter(v => !filtered.some(f => f.value === v)));
 
   // click outside to close
   React.useEffect(() => {
@@ -707,7 +841,13 @@ function TeamMultiDropdown({ options = [], selected = [], onChange }) {
         className="w-[260px] rounded-lg border px-3 py-2 text-sm bg-white text-gray-800 flex items-center justify-between"
       >
         <span className="truncate">{buttonLabel}</span>
-        <svg className={`h-4 w-4 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`} viewBox="0 0 20 20" fill="currentColor"><path d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 011.08 1.04l-4.25 4.25a.75.75 0 01-1.06 0L5.21 8.27a.75.75 0 01.02-1.06z"/></svg>
+        <svg
+          className={`h-4 w-4 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`}
+          viewBox="0 0 20 20"
+          fill="currentColor"
+        >
+          <path d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 011.08 1.04l-4.25 4.25a.75.75 0 01-1.06 0L5.21 8.27a.75.75 0 01.02-1.06z" />
+        </svg>
       </button>
 
       {open && (
@@ -883,7 +1023,9 @@ function StatCard({ title, value, accent = "from-gray-200 to-gray-100", icon = "
         <Icon kind={icon} className="h-10 w-10 rounded-xl bg-gray-50 p-2 text-gray-700 group-hover:scale-105 transition-transform" />
         <div>
           <div className="text-sm text-gray-500">{title}</div>
-          <div className="mt-1 text-3xl font-bold text-gray-900 tabular-nums">{Number(value ?? 0)}</div>
+          <div className="mt-1 text-3xl font-bold text-gray-900 tabular-nums">
+            {value ?? 0}
+          </div>
         </div>
       </div>
     </div>
