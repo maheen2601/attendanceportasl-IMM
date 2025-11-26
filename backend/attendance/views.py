@@ -3304,14 +3304,15 @@ def get_leave_distribution(request):
 def my_attendance_corrections(request):
     emp = _get_employee(request.user)
 
+    # ---------- GET: list my own corrections ----------
     if request.method == "GET":
         qs = AttendanceCorrection.objects.filter(employee=emp).order_by("-id")
         return Response(AttendanceCorrectionSerializer(qs, many=True).data)
 
-    # POST
+    # ---------- POST: create new correction ----------
     for_date = request.data.get("for_date")
-    want_in = request.data.get("want_check_in")   # "HH:MM" or ""
-    want_out = request.data.get("want_check_out") # "HH:MM" or ""
+    want_in = request.data.get("want_check_in")    # "HH:MM" or ""
+    want_out = request.data.get("want_check_out")  # "HH:MM" or ""
     reason = (request.data.get("reason") or "").strip()
 
     if not for_date:
@@ -3329,12 +3330,16 @@ def my_attendance_corrections(request):
         except ValueError:
             return None
 
-    t_in  = parse_hhmm(want_in)
+    t_in = parse_hhmm(want_in)
     t_out = parse_hhmm(want_out)
 
     if not t_in and not t_out:
-        return Response({"detail": "Provide want_check_in and/or want_check_out in HH:MM."}, status=400)
+        return Response(
+            {"detail": "Provide want_check_in and/or want_check_out in HH:MM."},
+            status=400,
+        )
 
+    # create as usual
     obj = AttendanceCorrection.objects.create(
         employee=emp,
         for_date=d,
@@ -3343,6 +3348,54 @@ def my_attendance_corrections(request):
         reason=reason,
         status="pending",
     )
+
+    # ---------- SPECIAL CASE: admin self-correction ----------
+    # "Admin" in your app = staff & NOT a team lead
+    is_admin_self = request.user.is_staff and not hasattr(request.user, "team_lead")
+
+    if is_admin_self:
+        # 1) mark as approved
+        obj.status = "approved"
+        obj.save(update_fields=["status"])
+
+        # 2) apply directly to Attendance (same logic as AttendanceCorrectionAdminUpdate)
+        att, _ = Attendance.objects.get_or_create(
+            employee=emp,
+            date=obj.for_date,
+            defaults={"status": "Present", "mode": "WFH"},
+        )
+
+        def to_dt(d_, t_):
+            if not t_:
+                return None
+            try:
+                if isinstance(t_, str):
+                    t_ = datetime.strptime(t_, "%H:%M").time()
+                return timezone.make_aware(datetime.combine(d_, t_))
+            except Exception:
+                return None
+
+        if obj.want_check_in:
+            att.check_in = to_dt(obj.for_date, obj.want_check_in)
+        if obj.want_check_out:
+            att.check_out = to_dt(obj.for_date, obj.want_check_out)
+
+        # mark as corrected present day
+        att.minutes_late = 0
+        att.tag = "corrected"
+        att.status = "Present"
+
+        # infer mode from [MODE:WFH] / [MODE:Onsite] in reason
+        mode_txt = None
+        m = re.search(r"\[MODE\s*:\s*(WFH|Onsite)\]", (obj.reason or ""), flags=re.I)
+        if m:
+            mode_txt = m.group(1).title()
+        if mode_txt in {"WFH", "Onsite"}:
+            att.mode = mode_txt
+
+        att.save(update_fields=["check_in", "check_out", "minutes_late", "tag", "status", "mode"])
+
+    # -------- response (same for admin & employee) --------
     return Response(AttendanceCorrectionSerializer(obj).data, status=201)
 
 
