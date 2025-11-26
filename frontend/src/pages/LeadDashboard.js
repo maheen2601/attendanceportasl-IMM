@@ -44,7 +44,7 @@ export default function AdminDashboard() {
   const hasCheckedIn = Boolean(todayRec.check_in);
   const hasCheckedOut = Boolean(todayRec.check_out);
 
-  // NEW: meta for open/auto-closed banners
+  // meta for open/auto-closed banners
   const [openShift, setOpenShift] = useState(null);
   const [autoClosed, setAutoClosed] = useState(null);
 
@@ -70,7 +70,7 @@ export default function AdminDashboard() {
     }
   };
 
-  // NEW: load my dashboard meta (open_shift / auto_closed_shift)
+  // load my dashboard meta (open_shift / auto_closed_shift)
   const loadMyDashMeta = async () => {
     try {
       const res = await api.get("me/dashboard/");
@@ -126,7 +126,7 @@ export default function AdminDashboard() {
   };
 
   const checkOut = async () => {
-    // ✅ Allow checkout if either today's check-in exists OR an older open_shift exists
+    // allow checkout if either today's check-in exists OR an older open_shift exists
     if (!hasCheckedIn && !openShift) {
       toast.info("You need to check-in before you can check-out.");
       return;
@@ -181,13 +181,13 @@ export default function AdminDashboard() {
   const [from, setFrom] = useState(daysAgoStr(6));
   const [to, setTo] = useState(todayStr());
 
-  // ---- Team filter state: [] means "All"
+  // Team filter state: [] means "All"
   const [selectedTeams, setSelectedTeams] = useState([]);
 
-  // ---- Dynamic team options from API (scoped on the server for lead/admin)
+  // Dynamic team options from API (scoped on the server for lead/admin)
   const [teamOptions, setTeamOptions] = useState([]);
 
-  // NEW: date for Leave donut (defaults to today; synced with range)
+  // date for Leave donut (defaults to today; synced with range)
   const [leaveDate, setLeaveDate] = useState(() => todayStr());
 
   const fetchStats = async () => {
@@ -267,7 +267,7 @@ export default function AdminDashboard() {
   const rangeFrom = range?.from || from;
   const rangeTo = range?.to || to;
 
-  // percentages for KPI cards
+  // percentages for Attendance % Split card
   const pctPresent = totalEmployees
     ? Math.round((presentToday / totalEmployees) * 100)
     : 0;
@@ -281,7 +281,7 @@ export default function AdminDashboard() {
     ? Math.round((onsiteToday / totalEmployees) * 100)
     : 0;
 
-  // NEW: keep leaveDate in-range if backend changes rangeFrom/rangeTo
+  // keep leaveDate in-range if backend changes rangeFrom/rangeTo
   useEffect(() => {
     if (!rangeTo) return;
     setLeaveDate((prev) => {
@@ -310,13 +310,13 @@ export default function AdminDashboard() {
     { name: "Absent", value: absentToday },
   ];
 
-  // use RANGE-based values for this donut
+  // RANGE-based values for donut
   const modePieData = [
     { name: "WFH", value: wfhRange },
     { name: "Onsite", value: onsiteRange },
   ];
 
-  // NEW: Leave vs Not-on-leave donut data for selected date (based on trend)
+  // Leave vs Not-on-leave donut data for selected date (based on trend)
   const leaveDonutData = useMemo(() => {
     const raw = Array.isArray(stats.trend) ? stats.trend : [];
     if (!leaveDate) {
@@ -341,7 +341,7 @@ export default function AdminDashboard() {
     ];
   }, [stats.trend, leaveDate]);
 
-  // NEW: Early Off vs Completed / Not Early Off donut
+  // Early Off vs Completed / Not Early Off donut
   const earlyOffDonutData = useMemo(() => {
     const early = earlyOffCount;
     const nonEarly = Math.max(0, totalEmployees - early);
@@ -442,7 +442,7 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* ---------- Red alerts for open / auto-closed shifts ---------- */}
+      {/* Red alerts for open / auto-closed shifts */}
       {(!loading) && (showOpenBanner || showAutoClosedBanner) && (
         <div className="mt-4 mb-6 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-red-800">
           {showOpenBanner && (
@@ -469,9 +469,8 @@ export default function AdminDashboard() {
           )}
         </div>
       )}
-      {/* ------------------------------------------------------------------- */}
 
-      {/* ---------- My Quick Attendance panel ---------- */}
+      {/* My Quick Attendance panel */}
       <div className="bg-white rounded-xl border p-4 mt-2 mb-8">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
@@ -480,13 +479,13 @@ export default function AdminDashboard() {
               Use pre-notice if you’ll be late, then check-in/out (only once each).
             </div>
 
-            {/* The small inline info row */}
+            {/* small inline info row */}
             <div className="mt-2 text-xs text-gray-600">
               Today: <b>{todayRec.date}</b> · Check-in: <b>{fmtTime(todayRec.check_in)}</b>
               {todayRec.mode ? <> (<b>{todayRec.mode}</b>)</> : null}
               {" "}· Check-out: <b>{fmtTime(todayRec.check_out)}</b>
 
-              {/* 🔴 Inline OPEN SHIFT message (always when open_shift exists) */}
+              {/* inline OPEN SHIFT message */}
               {showOpenInline && (
                 <>
                   {" "}·{" "}
@@ -567,59 +566,48 @@ export default function AdminDashboard() {
         />
       </div>
 
-      {/* KPIs row 2 – range summary (WFH/Onsite/Leave/Avg hours) */}
+      {/* KPIs row 2 – WFH/Onsite/Leave/Avg hours (range) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <StatCard
-          title={`WFH in Range`}
+          title={`WFH (${rangeFrom} — ${rangeTo})`}
           value={wfhRange}
           accent="from-cyan-500/20 to-sky-500/20"
           icon="check"
+          helper={`Today: ${wfhToday} employees`}
         />
         <StatCard
-          title={`Onsite in Range`}
+          title={`Onsite (${rangeFrom} — ${rangeTo})`}
           value={onsiteRange}
           accent="from-lime-500/20 to-emerald-500/20"
           icon="check"
+          helper={`Today: ${onsiteToday} employees`}
         />
         <StatCard
-          title="On Leave in Range"
+          title={`On Leave (${rangeFrom} — ${rangeTo})`}
           value={leaveInRange}
           accent="from-amber-500/20 to-orange-500/20"
           icon="clock"
         />
         <StatCard
-          title="Avg Work Hours (Range)"
-          value={formatAvgHours(avgWorkHours)}
+          title={`Avg Working Hours (${rangeFrom} — ${rangeTo})`}
+          value={`${formatAvgHours(avgWorkHours)}h`}
           accent="from-slate-500/20 to-gray-500/20"
           icon="clock"
         />
       </div>
 
-      {/* KPIs row 3 – percentages & early off */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <StatCard
-          title="Present % (Today)"
-          value={`${pctPresent}%`}
-          accent="from-emerald-500/20 to-green-500/20"
-          icon="check"
+      {/* KPIs row 3 – Attendance % split + Early off (exact layout like screenshot) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <AttendanceSplitCard
+          pctPresent={pctPresent}
+          pctAbsent={pctAbsent}
+          pctWfh={pctWfh}
+          pctOnsite={pctOnsite}
         />
-        <StatCard
-          title="Absent % (Today)"
-          value={`${pctAbsent}%`}
-          accent="from-rose-500/20 to-red-500/20"
-          icon="x"
-        />
-        <StatCard
-          title="WFH % (Today)"
-          value={`${pctWfh}%`}
-          accent="from-cyan-500/20 to-blue-500/20"
-          icon="check"
-        />
-        <StatCard
-          title="Early Off (Range)"
-          value={earlyOffCount}
-          accent="from-orange-500/20 to-amber-500/20"
-          icon="clock"
+        <EarlyOffStatCard
+          count={earlyOffCount}
+          rangeFrom={rangeFrom}
+          rangeTo={rangeTo}
         />
       </div>
 
@@ -638,7 +626,7 @@ export default function AdminDashboard() {
                   <YAxis allowDecimals={false} tick={{ fill: "#6b7280" }} axisLine={false} tickLine={false} />
                   <Tooltip content={<NiceTooltip />} />
                   <Legend />
-                  <Bar dataKey="value" name="Count" radius={[10,10,0,0]} fill="url(#barGradient)" />
+                  <Bar dataKey="value" name="Count" radius={[10, 10, 0, 0]} fill="url(#barGradient)" />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -686,9 +674,9 @@ export default function AdminDashboard() {
                   <YAxis allowDecimals={false} tick={{ fill: "#6b7280" }} axisLine={false} tickLine={false} />
                   <Tooltip content={<NiceTooltip />} />
                   <Legend />
-                  <Line type="monotone" dataKey="Absent"  stroke="url(#lineRed)"    strokeWidth={2.5} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="Present" stroke="url(#lineGreen)"  strokeWidth={2.5} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="Total"   stroke="url(#lineIndigo)" strokeWidth={2.5} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="Absent" stroke="url(#lineRed)" strokeWidth={2.5} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="Present" stroke="url(#lineGreen)" strokeWidth={2.5} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="Total" stroke="url(#lineIndigo)" strokeWidth={2.5} dot={{ r: 3 }} />
                 </LineChart>
               </ResponsiveContainer>
             )}
@@ -1014,8 +1002,54 @@ function SelectedTeamsStatCard({ selectedTeams, onClear }) {
   );
 }
 
+/* ---------- Attendance % Split + Early off cards ---------- */
+function AttendanceSplitCard({ pctPresent, pctAbsent, pctWfh, pctOnsite }) {
+  return (
+    <div className="group relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-all">
+      <div className="pointer-events-none absolute inset-x-0 -top-1 h-1 bg-gradient-to-r from-indigo-500/20 to-sky-500/20" />
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-500">Attendance % Split (Today)</div>
+        </div>
+        <div className="mt-1 text-3xl font-bold text-gray-900">
+          {pctPresent}% Present
+        </div>
+        <div className="mt-2 space-y-1 text-sm text-gray-600">
+          <div>Absent: {pctAbsent}%</div>
+          <div>WFH: {pctWfh}% · Onsite: {pctOnsite}%</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EarlyOffStatCard({ count, rangeFrom, rangeTo }) {
+  return (
+    <div className="group relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-all">
+      <div className="pointer-events-none absolute inset-x-0 -top-1 h-1 bg-gradient-to-r from-orange-500/20 to-amber-500/20" />
+      <div className="flex items-start gap-4">
+        <Icon
+          kind="clock"
+          className="h-10 w-10 rounded-xl bg-gray-50 p-2 text-gray-700 group-hover:scale-105 transition-transform"
+        />
+        <div>
+          <div className="text-sm text-gray-500">
+            Early Off Count ({rangeFrom} — {rangeTo})
+          </div>
+          <div className="mt-1 text-3xl font-bold text-gray-900">
+            {count ?? 0}
+          </div>
+          <div className="mt-2 text-xs text-gray-500">
+            Short-hours / early-off (range)
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Small helpers / presentational bits ---------- */
-function StatCard({ title, value, accent = "from-gray-200 to-gray-100", icon = "dot" }) {
+function StatCard({ title, value, accent = "from-gray-200 to-gray-100", icon = "dot", helper }) {
   return (
     <div className="group relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 shadow-sm hover:shadow-md transition-all">
       <div className={`pointer-events-none absolute inset-x-0 -top-1 h-1 bg-gradient-to-r ${accent}`} />
@@ -1026,6 +1060,11 @@ function StatCard({ title, value, accent = "from-gray-200 to-gray-100", icon = "
           <div className="mt-1 text-3xl font-bold text-gray-900 tabular-nums">
             {value ?? 0}
           </div>
+          {helper && (
+            <div className="mt-1 text-xs text-gray-500">
+              {helper}
+            </div>
+          )}
         </div>
       </div>
     </div>
