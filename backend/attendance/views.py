@@ -2029,7 +2029,6 @@
 #     return att
 
 
-
 from rest_framework import status, serializers
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -2414,6 +2413,43 @@ from urllib.parse import unquote
 #     return [t.strip() for t in raw if t.strip()]
 
 
+# make sure these are imported somewhere above in the file:
+# from datetime import date, timedelta, time as time_cls
+# from django.db.models import Q, Count
+# from rest_framework.decorators import api_view, permission_classes
+# from rest_framework.response import Response
+# from .permissions import IsAdminOrTeamLead
+# from .models import Attendance, LeaveRequest, EarlyOffRequest
+# from .views import employee_scope_for   # (only if employee_scope_for is in another module)
+
+
+from datetime import date, timedelta, time as time_cls
+from django.db.models import Count, Q
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+
+# attendance/views.py
+
+from datetime import date, timedelta, time as time_cls
+from django.db.models import Count, Q
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+
+from .models import Attendance, LeaveRequest, EarlyOffRequest
+from .permissions import IsAdminOrTeamLead
+
+
+
+# attendance/views.py
+from datetime import date, timedelta, time as time_cls
+from django.db.models import Count, Q
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+
+from .models import Attendance, LeaveRequest, EarlyOffRequest, Employee
+from .permissions import IsAdminOrTeamLead
+
+
 @api_view(['GET'])
 @permission_classes([IsAdminOrTeamLead])
 def dashboard_stats(request):
@@ -2427,6 +2463,8 @@ def dashboard_stats(request):
         • Range KPIs (present_range, leave_range, wfh_range, onsite_range)
         • Avg working hours in range
         • Early-off count in range
+        • Shift-wise present snapshot for END date:
+              shift_8_4, shift_10_7, shift_12_8, shift_4_12
         • Trend list for chart
     """
 
@@ -2449,9 +2487,7 @@ def dashboard_stats(request):
         # Hard limit → max 120 days range
         if (end - start).days > 120:
             end = start + timedelta(days=120)
-
     else:
-        # default last 7 days (including today)
         end = date.today()
         start = end - timedelta(days=6)
 
@@ -2495,11 +2531,9 @@ def dashboard_stats(request):
         date__range=(start, end)
     )
 
-    # Range totals
     present_range = att_range_qs.filter(status="Present").count()
-    leave_range = att_range_qs.filter(status="Leave").count()
+    leave_range   = att_range_qs.filter(status="Leave").count()
 
-    # WFH/Onsite totals in range
     wfh_range = att_range_qs.filter(status="Present", mode="WFH").count()
     onsite_range = att_range_qs.filter(status="Present", mode="Onsite").count()
 
@@ -2516,10 +2550,9 @@ def dashboard_stats(request):
     for a in present_with_times:
         total_hours += float(a.hours_worked or 0)
 
-    if present_with_times.exists():
-        avg_work_hours = round(total_hours / present_with_times.count(), 2)
-    else:
-        avg_work_hours = 0.0
+    avg_work_hours = round(
+        total_hours / present_with_times.count(), 2
+    ) if present_with_times.exists() else 0.0
 
     # -----------------------------
     # 6. Early-off count in range
@@ -2531,19 +2564,59 @@ def dashboard_stats(request):
     ).count()
 
     # -----------------------------
+    # 6.5 SHIFT-WISE COUNTS (END DATE)
+    # Use assigned Employee.shift_start / shift_end
+    # and require Present + check_in is not null.
+    # -----------------------------
+    today_present_qs = Attendance.objects.filter(
+        date=end,
+        status="Present",
+        employee__in=emp_qs,
+        check_in__isnull=False,
+    )
+
+    # Shift windows in local hours: [start, end)
+    SHIFT_WINDOWS = [
+        ("shift_8_4",  8, 10),   # 8am–4pm → checked in between 08:00–<10:00
+        ("shift_10_7", 10, 12),  # 10am–7pm → 10:00–<12:00
+        ("shift_12_8", 12, 16),  # 12pm–8pm → 12:00–<16:00
+        ("shift_4_12", 16, 24),  # 4pm–12am → 16:00–<24:00
+    ]
+
+    shift_counts = {key: 0 for (key, _, _) in SHIFT_WINDOWS}
+
+    for att in today_present_qs:
+        if not att.check_in:
+            continue
+
+        # convert to local timezone if aware
+        ci = att.check_in
+        ci_local = timezone.localtime(ci) if timezone.is_aware(ci) else ci
+        h = ci_local.hour
+
+        for key, start_h, end_h in SHIFT_WINDOWS:
+            if start_h <= h < end_h:
+                shift_counts[key] += 1
+                break
+
+    shift_8_4  = shift_counts["shift_8_4"]
+    shift_10_7 = shift_counts["shift_10_7"]
+    shift_12_8 = shift_counts["shift_12_8"]
+    shift_4_12 = shift_counts["shift_4_12"]
+
+    # -----------------------------
     # 7. Trend per day for charts
     # -----------------------------
     daily_agg = {
         d['date']: d
         for d in att_range_qs.values('date').annotate(
             present=Count('id', filter=Q(status="Present")),
-            leave=Count('id', filter=Q(status="Leave")),
+            leave=Count('id',   filter=Q(status="Leave")),
         )
     }
 
     trend = []
     cursor = start
-
     while cursor <= end:
         obj = daily_agg.get(cursor, {"present": 0, "leave": 0})
         trend.append({
@@ -2555,36 +2628,35 @@ def dashboard_stats(request):
         cursor += timedelta(days=1)
 
     # -----------------------------
-    # 8. Return final response
+    # 8. Response
     # -----------------------------
     return Response({
-        # --- Employee pool size ---
         "total_employees": total_employees,
 
-        # --- Single-day KPIs ---
         "present_today": present_today,
-        "absent_today": absent_today,
-        "leave_today": leave_today,
+        "absent_today":  absent_today,
+        "leave_today":   leave_today,
         "leave_pending": leave_pending,
-        "wfh": wfh,
-        "onsite": onsite,
+        "wfh":           wfh,
+        "onsite":        onsite,
 
-        # --- Range KPIs ---
         "present_range": present_range,
-        "leave_range": leave_range,
-        "wfh_range": wfh_range,
-        "onsite_range": onsite_range,
+        "leave_range":   leave_range,
+        "wfh_range":     wfh_range,
+        "onsite_range":  onsite_range,
         "avg_work_hours": avg_work_hours,
         "early_off_count": early_off_count,
 
-        # --- Trend for charts ---
-        "trend": trend,
+        "shift_8_4":  shift_8_4,
+        "shift_10_7": shift_10_7,
+        "shift_12_8": shift_12_8,
+        "shift_4_12": shift_4_12,
 
-        # --- Echo back actual range ---
+        "trend": trend,
         "range": {
             "from": start.isoformat(),
-            "to": end.isoformat()
-        }
+            "to":   end.isoformat(),
+        },
     })
 # ---------- EMPLOYEE APIs ----------
 
@@ -2596,67 +2668,73 @@ def _get_employee(user) -> Employee:
 def me_profile(request):
     emp = _get_employee(request.user)
     return Response(EmployeeProfileSerializer(emp).data)
+def _parse_range_for_shift(request):
+    """Use the same logic as _parse_range, but tiny wrapper for clarity."""
+    f = parse_date(request.GET.get("from") or "")
+    t = parse_date(request.GET.get("to") or "")
+    today = timezone.localdate()
+    f = f or today
+    t = t or today
+    if t < f:
+        t = f
+    if (t - f).days > 120:
+        t = f + timedelta(days=120)
+    return f, t
 
-# @api_view(['POST'])
-# @permission_classes([IsAuthenticated])
-# def check_in(request):
-#     emp = _get_employee(request.user)
 
-#     open_att = _open_attendance(emp)
-#     if open_att:
-#         now = timezone.now()
-#         age = now - open_att.check_in if open_att.check_in else timedelta(0)
+@api_view(["GET"])
+@permission_classes([IsAdminOrTeamLead])
+def dashboard_shift_stats(request):
+    """
+    GET /api/dashboard-shift-stats/?from=YYYY-MM-DD&to=YYYY-MM-DD&team=TCP&team=SEO
 
-#         if age > timedelta(hours=STALE_OPEN_MAX_HOURS):
-#             # Auto-close the stale open shift, then proceed with today's check-in
-#             _force_close_stale(open_att, max_hours=STALE_OPEN_MAX_HOURS)
-#         else:
-#             # Still fresh — block as before
-#             return Response(
-#                 {
-#                     "detail": (
-#                         f"You still have an open shift for {open_att.date.isoformat()} "
-#                         "that has not been checked out. Please check out first."
-#                     ),
-#                     "open_shift_date": open_att.date.isoformat(),
-#                     "open_shift_check_in": open_att.check_in.isoformat() if open_att.check_in else None,
-#                 },
-#                 status=409,
-#             )
+    Uses the END date of the range as the "today" snapshot and returns:
+        shift_8_4, shift_10_7, shift_12_8, shift_4_12
+    """
+    # 1) parse range → we'll use 'end' as snapshot date
+    start, end = _parse_range_for_shift(request)
 
-#     mode = (request.data.get("mode") or "").strip()
-#     if mode not in ["WFH","Onsite"]:
-#         return Response({"detail":"mode must be 'WFH' or 'Onsite'."}, status=400)
+    # 2) scope employees by role + ?team
+    emp_qs = employee_scope_for(request)
 
-#     settings = PolicySettings.get()
-#     today = date.today()
-#     now = timezone.now()
+    # 3) Present with check_in on END date
+    today_present_qs = Attendance.objects.filter(
+        date=end,
+        status="Present",
+        employee__in=emp_qs,
+        check_in__isnull=False,
+    )
 
-#     shift_start_dt = timezone.make_aware(datetime.combine(today, emp.shift_start))
-#     grace_deadline = shift_start_dt + timedelta(minutes=settings.grace_minutes)
+    # 4) Same shift windows as dashboard_stats
+    SHIFT_WINDOWS = [
+        ("shift_8_4",  8, 10),
+        ("shift_10_7", 10, 12),
+        ("shift_12_8", 12, 16),
+        ("shift_4_12", 16, 24),
+    ]
 
-#     informed = PreNotice.objects.filter(
-#         employee=emp, kind='late', for_date=today,
-#         created_at__lte=shift_start_dt - timedelta(minutes=settings.late_notice_minutes)
-#     ).exists()
+    shift_counts = {key: 0 for (key, _, _) in SHIFT_WINDOWS}
 
-#     minutes_late = 0
-#     tag = 'normal'
-#     if now > grace_deadline:
-#         minutes_late = int((now - shift_start_dt).total_seconds() // 60)
-#         tag = 'late_inf' if informed else 'late_uninf'
+    for att in today_present_qs:
+        ci = att.check_in
+        if not ci:
+            continue
+        ci_local = timezone.localtime(ci) if timezone.is_aware(ci) else ci
+        h = ci_local.hour
 
-#     obj, _ = Attendance.objects.update_or_create(
-#         employee=emp, date=today,
-#         defaults={
-#             "status": "Present",
-#             "mode": mode,
-#             "check_in": now,
-#             "minutes_late": minutes_late,
-#             "tag": tag,
-#         }
-#     )
-#     return Response(AttendanceSerializer(obj).data)
+        for key, start_h, end_h in SHIFT_WINDOWS:
+            if start_h <= h < end_h:
+                shift_counts[key] += 1
+                break
+
+    return Response({
+        "date": end.isoformat(),
+        "shift_8_4":  shift_counts["shift_8_4"],
+        "shift_10_7": shift_counts["shift_10_7"],
+        "shift_12_8": shift_counts["shift_12_8"],
+        "shift_4_12": shift_counts["shift_4_12"],
+    }, status=200)
+
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -4234,3 +4312,19 @@ def _force_close_stale(att, *, max_hours=STALE_OPEN_MAX_HOURS):
     # do NOT assign att.hours_worked here if it's a computed property
     att.save(update_fields=["check_out", "tag"])
     return att
+
+def _force_open_stale(att, *, min_hours=STALE_OPEN_MAX_HOURS):
+    """
+    Force-open a stale Attendance by clearing its checkout time
+    if (check_out - check_in) > min_hours. Adds 'auto_open_stale' tag and saves.
+    """
+    if not att.check_in or not att.check_out:
+        return att  # nothing to do
+
+    duration = att.check_out - att.check_in
+    if duration.total_seconds() >= (min_hours * 3600):
+        att.check_out = None
+        _append_tag(att, "auto_open_stale")
+        att.save(update_fields=["check_out", "tag"])
+    return att
+
