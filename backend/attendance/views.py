@@ -2028,7 +2028,6 @@
 #     att.save(update_fields=["check_out", "tag"])
 #     return att
 
-
 from rest_framework import status, serializers
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -2661,7 +2660,9 @@ def dashboard_stats(request):
 # ---------- EMPLOYEE APIs ----------
 
 def _get_employee(user) -> Employee:
-    return get_object_or_404(Employee, user=user)
+    emp = get_object_or_404(Employee, user=user)
+    _auto_topup_leave_balance(emp)  # ✅ ensure balance is fresh on each self-API
+    return emp
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -2785,8 +2786,6 @@ def check_in(request):
 
 
 
-
-
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def my_stats(request):
@@ -2899,6 +2898,8 @@ def my_leaves(request):
         except Exception:
             shift_start_dt = shift_start_naive
         notice_met = now <= (shift_start_dt - timedelta(hours=settings.notice_sick_hours))
+    
+
 
     elif leave_type == 'casual':
         notice_met = (s - today) >= timedelta(hours=settings.notice_casual_hours)
@@ -3615,15 +3616,18 @@ _CONSUMES_MAP = {
 def _apply_approved_leave(req: LeaveRequest):
     """
     When a leave request is approved:
-      - mark Attendance rows as 'Leave' for each day in range
-      - deduct the correct leave balance (type-specific if fields exist; else fallback to 'leave_balance')
-    Raises serializers.ValidationError on insufficient balance.
+      - auto-topup balance if needed (based on join_date)
+      - mark Attendance rows as 'Leave'
+      - deduct correct leave balance
     """
     emp = req.employee
+
+    # ✅ make sure yearly top-ups are applied before checking/deducting
+    _auto_topup_leave_balance(emp)
+
     days = (req.end_date - req.start_date).days + 1
 
     with transaction.atomic():
-        # deduct balance
         field = _CONSUMES_MAP.get(req.leave_type)
         if field and hasattr(emp, field):
             cur = getattr(emp, field) or 0
@@ -3631,14 +3635,14 @@ def _apply_approved_leave(req: LeaveRequest):
                 raise serializers.ValidationError(f"Insufficient {req.leave_type} leave balance.")
             setattr(emp, field, cur - days)
         else:
-            # fallback to a single pool if you use one
             cur = getattr(emp, "leave_balance", 0) or 0
             if cur < days:
                 raise serializers.ValidationError("Insufficient leave balance.")
             emp.leave_balance = cur - days
+
         emp.save()
 
-        # write attendance rows
+        # write attendance rows...
         d = req.start_date
         while d <= req.end_date:
             Attendance.objects.update_or_create(
@@ -3711,6 +3715,7 @@ class EmployeeListAPIView(ListAPIView):
         today = date.today()
         f = f or today
         t = t or today
+    
         if t < f:
             t = f
         if (t - f).days > 120:
@@ -4256,6 +4261,76 @@ def _open_attendance(emp):
 
     return att
 
+YEARLY_LEAVE_DAYS = 60  # your yearly entitlement per completed year
+
+
+def _auto_topup_leave_balance(emp):
+    """
+    Reset-style yearly leave:
+
+    - Each leave year (based on join_date anniversary) has a fresh
+      entitlement of YEARLY_LEAVE_DAYS (15).
+    - Old remaining balance from previous years is *ignored*.
+    - leave_balance = 15 - days_used_in_current_leave_year
+    """
+    if not emp.join_date:
+        return  # cannot compute without join date
+
+    today = timezone.localdate()
+    jd = emp.join_date
+
+    # Safety: future join_date → do nothing
+    if jd > today:
+        return
+
+    # -------- 1) Find current leave-year start --------
+    # Try this year's anniversary first
+    try:
+        this_year_anniv = jd.replace(year=today.year)
+    except ValueError:
+        # handle 29-Feb join date on non-leap years
+        if jd.month == 2 and jd.day == 29:
+            this_year_anniv = date(today.year, 2, 28)
+        else:
+            this_year_anniv = jd
+
+    if this_year_anniv > today:
+        # We are before the anniversary → current leave year started last year
+        try:
+            year_start = jd.replace(year=today.year - 1)
+        except ValueError:
+            if jd.month == 2 and jd.day == 29:
+                year_start = date(today.year - 1, 2, 28)
+            else:
+                year_start = jd
+    else:
+        # On/after this year's anniversary
+        year_start = this_year_anniv
+
+    # -------- 2) Count approved leave days in THIS leave year --------
+    consumes_types = {"sick", "casual", "annual", "comp"}
+
+    qs = LeaveRequest.objects.filter(
+        employee=emp,
+        status="approved",
+        leave_type__in=consumes_types,
+        start_date__gte=year_start,
+        start_date__lte=today,
+    )
+
+    days_used_this_year = 0
+    for lr in qs:
+        days_used_this_year += (lr.end_date - lr.start_date).days + 1
+
+    # -------- 3) Compute remaining balance for this year only --------
+    new_balance = YEARLY_LEAVE_DAYS - days_used_this_year
+    if new_balance < 0:
+        new_balance = 0
+
+    # Only save if changed
+    if emp.leave_balance != new_balance:
+        emp.leave_balance = new_balance
+        emp.save(update_fields=["leave_balance"])
 
 STALE_OPEN_MAX_HOURS = 9  # or fetch from PolicySettings if you add a field there
 
@@ -4318,6 +4393,8 @@ def _force_open_stale(att, *, min_hours=STALE_OPEN_MAX_HOURS):
     Force-open a stale Attendance by clearing its checkout time
     if (check_out - check_in) > min_hours. Adds 'auto_open_stale' tag and saves.
     """
+
+
     if not att.check_in or not att.check_out:
         return att  # nothing to do
 
@@ -4327,4 +4404,12 @@ def _force_open_stale(att, *, min_hours=STALE_OPEN_MAX_HOURS):
         _append_tag(att, "auto_open_stale")
         att.save(update_fields=["check_out", "tag"])
     return att
+
+
+class LeaveRequestAdminUpdate(UpdateAPIView):
+    permission_classes = [IsAdminOrTeamLead]
+    permissions_object_level = True
+
+
+
 
