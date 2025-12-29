@@ -4407,7 +4407,7 @@ def _force_open_stale(att, *, min_hours=STALE_OPEN_MAX_HOURS):
 
 class LeaveRequestAdminUpdate(UpdateAPIView):
     queryset = LeaveRequest.objects.all()   # ✅ REQUIRED
-    serializer_class = LeaveRequestAdminSerializer
+    serializer_class = LeaveRequestSerializer
     permission_classes = [IsAdminUser]
     http_method_names = ["patch", "put"]
 
