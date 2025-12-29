@@ -2027,7 +2027,6 @@
 #     # do NOT assign att.hours_worked here if it's a computed property
 #     att.save(update_fields=["check_out", "tag"])
 #     return att
-
 from rest_framework import status, serializers
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -4409,7 +4408,6 @@ def _force_open_stale(att, *, min_hours=STALE_OPEN_MAX_HOURS):
 class LeaveRequestAdminUpdate(UpdateAPIView):
     permission_classes = [IsAdminOrTeamLead]
     permissions_object_level = True
-
 
 
 
