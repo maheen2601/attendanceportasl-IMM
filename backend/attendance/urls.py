@@ -225,7 +225,7 @@ urlpatterns = [
     path("admin/teams/", team_list, name="admin_team_list"),
     # lead endpoints
     # path("admin/teams/", team_list, name="admin_team_list"),
-    path("lead/leave-requests/", lead_leave_list, name="lead_leave_list"),
+    # path("lead/leave-requests/", lead_leave_list, name="lead_leave_list"),
     path("lead/leave-requests/<int:pk>/", lead_leave_update, name="lead_leave_update"),
     
 
