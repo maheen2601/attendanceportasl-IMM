@@ -115,6 +115,8 @@
 #     path("admin/employees/", admin_employees, name="admin_employees"),
 #     path("lead/employees/", lead_employees, name="lead_employees"),
 # ]
+
+
 from django.urls import path
 from .views import CustomTokenObtainPairView
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -218,11 +220,12 @@ urlpatterns = [
     path("policy/",                    policy_settings_get, name="policy_get"),
     # path("admin/stats/",               dashboard_stats,     name="dashboard_stats"),
     path("dashboard-stats/", views.dashboard_stats, name="dashboard-stats"),
-    path("leave-requests/<int:pk>/", views.LeaveRequestAdminUpdate.as_view()),
+    # Duplicate removed - using line 90 instead
     path("me/attendance/today/", views.my_attendance_today, name="my-attendance-today"),
     # your existing list/range endpoint:
     path("me/attendance/", views.my_attendance, name="my-attendance"),
     path("admin/teams/", team_list, name="admin_team_list"),
+    path("dashboard-shift-stats/", views.dashboard_shift_stats, name="dashboard-shift-stats"),
     # lead endpoints
     # path("admin/teams/", team_list, name="admin_team_list"),
     path("lead/leave-requests/", lead_leave_list, name="lead_leave_list"),
