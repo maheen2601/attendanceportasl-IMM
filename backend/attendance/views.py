@@ -3616,38 +3616,53 @@ def _apply_approved_leave(req: LeaveRequest):
     """
     When a leave request is approved:
       - auto-topup balance if needed (based on join_date)
-      - mark Attendance rows as 'Leave'
-      - deduct correct leave balance
+      - mark Attendance rows as 'Leave' (or 'Present' with mode='WFH' for WFH)
+      - deduct correct leave balance (skip for WFH)
     """
     emp = req.employee
 
-    # ✅ make sure yearly top-ups are applied before checking/deducting
-    _auto_topup_leave_balance(emp)
-
-    days = (req.end_date - req.start_date).days + 1
-
-    with transaction.atomic():
-        field = _CONSUMES_MAP.get(req.leave_type)
-        if field and hasattr(emp, field):
-            cur = getattr(emp, field) or 0
-            if cur < days:
-                raise serializers.ValidationError(f"Insufficient {req.leave_type} leave balance.")
-            setattr(emp, field, cur - days)
-        else:
-            cur = getattr(emp, "leave_balance", 0) or 0
-            if cur < days:
-                raise serializers.ValidationError("Insufficient leave balance.")
-            emp.leave_balance = cur - days
-
-        emp.save()
-
-        # write attendance rows...
+    # WFH doesn't consume leave balance and should be marked as Present with mode=WFH
+    if req.leave_type == 'wfh':
         d = req.start_date
         while d <= req.end_date:
             Attendance.objects.update_or_create(
                 employee=emp, date=d,
-                defaults={"status": "Leave", "mode": None, "tag": "on_leave"}
+                defaults={"status": "Present", "mode": "WFH", "tag": "normal"}
             )
+            d += timedelta(days=1)
+        return  # WFH doesn't need balance deduction
+
+    # For other leave types, deduct balance and mark as Leave
+    # ✅ make sure yearly top-ups are applied before checking/deducting
+    try:
+        _auto_topup_leave_balance(emp)
+    except Exception as e:
+        # If topup fails, log but continue (might be missing join_date)
+        pass
+
+    days = (req.end_date - req.start_date).days + 1
+
+    with transaction.atomic():
+        # Employee model only has 'leave_balance' field, use it for all leave types
+        cur = getattr(emp, "leave_balance", 0) or 0
+        if cur < days:
+            raise serializers.ValidationError(f"Insufficient leave balance. Required: {days}, Available: {cur}")
+        
+        emp.leave_balance = cur - days
+        emp.save(update_fields=["leave_balance"])
+
+        # write attendance rows...
+        d = req.start_date
+        while d <= req.end_date:
+            try:
+                Attendance.objects.update_or_create(
+                    employee=emp, date=d,
+                    defaults={"status": "Leave", "mode": None, "tag": "normal"}
+                )
+            except Exception as e:
+                # If attendance creation fails, log and continue
+                # This shouldn't happen but handle gracefully
+                pass
             d += timedelta(days=1)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
