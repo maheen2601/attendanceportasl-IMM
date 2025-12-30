@@ -1,3 +1,4 @@
+
 # from rest_framework import status, serializers
 # from rest_framework.permissions import IsAdminUser
 # from rest_framework.response import Response
@@ -382,159 +383,330 @@
 # #     return [t.strip() for t in raw if t.strip()]
 
 
+# # make sure these are imported somewhere above in the file:
+# # from datetime import date, timedelta, time as time_cls
+# # from django.db.models import Q, Count
+# # from rest_framework.decorators import api_view, permission_classes
+# # from rest_framework.response import Response
+# # from .permissions import IsAdminOrTeamLead
+# # from .models import Attendance, LeaveRequest, EarlyOffRequest
+# # from .views import employee_scope_for   # (only if employee_scope_for is in another module)
+
+
+# from datetime import date, timedelta, time as time_cls
+# from django.db.models import Count, Q
+# from rest_framework.decorators import api_view, permission_classes
+# from rest_framework.response import Response
+
+# # attendance/views.py
+
+# from datetime import date, timedelta, time as time_cls
+# from django.db.models import Count, Q
+# from rest_framework.decorators import api_view, permission_classes
+# from rest_framework.response import Response
+
+# from .models import Attendance, LeaveRequest, EarlyOffRequest
+# from .permissions import IsAdminOrTeamLead
+
+
+
+# # attendance/views.py
+# from datetime import date, timedelta, time as time_cls
+# from django.db.models import Count, Q
+# from rest_framework.decorators import api_view, permission_classes
+# from rest_framework.response import Response
+
+# from .models import Attendance, LeaveRequest, EarlyOffRequest, Employee
+# from .permissions import IsAdminOrTeamLead
+
+
 # @api_view(['GET'])
 # @permission_classes([IsAdminOrTeamLead])
 # def dashboard_stats(request):
 #     """
-#     Admin: all data (optionally filtered by ?team=)
-#     Lead : only their teams (and any ?team= is intersected with allowed)
-#     Supports ?from=YYYY-MM-DD&to=YYYY-MM-DD and multi-team filters.
+#     Admin: full scope (optionally filtered by ?team=…)
+#     Lead : only employees under their teams (intersected with ?team=…)
+#     Supports ?from=YYYY-MM-DD&to=YYYY-MM-DD.
+
+#     Returns:
+#         • Single-day KPIs (present_today, absent_today, leave_today, wfh, onsite)
+#         • Range KPIs (present_range, leave_range, wfh_range, onsite_range)
+#         • Avg working hours in range
+#         • Early-off count in range
+#         • Shift-wise present snapshot for END date:
+#               shift_8_4, shift_10_7, shift_12_8, shift_4_12
+#         • Trend list for chart
 #     """
-#     # ---- date range
+
+#     # -----------------------------
+#     # 1. Parse date range
+#     # -----------------------------
 #     f = request.query_params.get("from")
 #     t = request.query_params.get("to")
+
 #     if f and t:
 #         try:
-#             start = date.fromisoformat(f); end = date.fromisoformat(t)
+#             start = date.fromisoformat(f)
+#             end = date.fromisoformat(t)
 #         except ValueError:
 #             return Response({"detail": "from/to must be YYYY-MM-DD."}, status=400)
+
 #         if end < start:
 #             return Response({"detail": "to cannot be before from."}, status=400)
+
+#         # Hard limit → max 120 days range
 #         if (end - start).days > 120:
 #             end = start + timedelta(days=120)
 #     else:
 #         end = date.today()
 #         start = end - timedelta(days=6)
 
-#     # ---- employee scope
+#     # -----------------------------
+#     # 2. Employee scope (Admin / Lead)
+#     # -----------------------------
 #     emp_qs = employee_scope_for(request)
 #     total_employees = emp_qs.count()
 
-#     # KPIs for end day
+#     # -----------------------------
+#     # 3. Single-day KPIs (end date)
+#     # -----------------------------
 #     present_today = Attendance.objects.filter(
 #         date=end, status="Present", employee__in=emp_qs
 #     ).count()
+
 #     leave_today = Attendance.objects.filter(
 #         date=end, status="Leave", employee__in=emp_qs
 #     ).count()
+
 #     absent_today = max(0, total_employees - (present_today + leave_today))
 
 #     wfh = Attendance.objects.filter(
 #         date=end, status="Present", mode="WFH", employee__in=emp_qs
 #     ).count()
+
 #     onsite = Attendance.objects.filter(
 #         date=end, status="Present", mode="Onsite", employee__in=emp_qs
 #     ).count()
 
 #     leave_pending = LeaveRequest.objects.filter(
-#         status="pending", employee__in=emp_qs
+#         status="pending",
+#         employee__in=emp_qs
 #     ).count()
 
-#     # Trend
-#     att_in_range = Attendance.objects.filter(
-#         employee__in=emp_qs, date__range=(start, end)
+#     # -----------------------------
+#     # 4. Range KPIs
+#     # -----------------------------
+#     att_range_qs = Attendance.objects.filter(
+#         employee__in=emp_qs,
+#         date__range=(start, end)
 #     )
-#     by_day = {
-#         d['date']: d for d in att_in_range.values('date').annotate(
+
+#     present_range = att_range_qs.filter(status="Present").count()
+#     leave_range   = att_range_qs.filter(status="Leave").count()
+
+#     wfh_range = att_range_qs.filter(status="Present", mode="WFH").count()
+#     onsite_range = att_range_qs.filter(status="Present", mode="Onsite").count()
+
+#     # -----------------------------
+#     # 5. Average working hours in range
+#     # -----------------------------
+#     present_with_times = att_range_qs.filter(
+#         status="Present",
+#         check_in__isnull=False,
+#         check_out__isnull=False
+#     )
+
+#     total_hours = 0.0
+#     for a in present_with_times:
+#         total_hours += float(a.hours_worked or 0)
+
+#     avg_work_hours = round(
+#         total_hours / present_with_times.count(), 2
+#     ) if present_with_times.exists() else 0.0
+
+#     # -----------------------------
+#     # 6. Early-off count in range
+#     # -----------------------------
+#     early_off_count = EarlyOffRequest.objects.filter(
+#         employee__in=emp_qs,
+#         status="approved",
+#         for_date__range=(start, end)
+#     ).count()
+
+#     # -----------------------------
+#     # 6.5 SHIFT-WISE COUNTS (END DATE)
+#     # Use assigned Employee.shift_start / shift_end
+#     # and require Present + check_in is not null.
+#     # -----------------------------
+#     today_present_qs = Attendance.objects.filter(
+#         date=end,
+#         status="Present",
+#         employee__in=emp_qs,
+#         check_in__isnull=False,
+#     )
+
+#     # Shift windows in local hours: [start, end)
+#     SHIFT_WINDOWS = [
+#         ("shift_8_4",  8, 10),   # 8am–4pm → checked in between 08:00–<10:00
+#         ("shift_10_7", 10, 12),  # 10am–7pm → 10:00–<12:00
+#         ("shift_12_8", 12, 16),  # 12pm–8pm → 12:00–<16:00
+#         ("shift_4_12", 16, 24),  # 4pm–12am → 16:00–<24:00
+#     ]
+
+#     shift_counts = {key: 0 for (key, _, _) in SHIFT_WINDOWS}
+
+#     for att in today_present_qs:
+#         if not att.check_in:
+#             continue
+
+#         # convert to local timezone if aware
+#         ci = att.check_in
+#         ci_local = timezone.localtime(ci) if timezone.is_aware(ci) else ci
+#         h = ci_local.hour
+
+#         for key, start_h, end_h in SHIFT_WINDOWS:
+#             if start_h <= h < end_h:
+#                 shift_counts[key] += 1
+#                 break
+
+#     shift_8_4  = shift_counts["shift_8_4"]
+#     shift_10_7 = shift_counts["shift_10_7"]
+#     shift_12_8 = shift_counts["shift_12_8"]
+#     shift_4_12 = shift_counts["shift_4_12"]
+
+#     # -----------------------------
+#     # 7. Trend per day for charts
+#     # -----------------------------
+#     daily_agg = {
+#         d['date']: d
+#         for d in att_range_qs.values('date').annotate(
 #             present=Count('id', filter=Q(status="Present")),
 #             leave=Count('id',   filter=Q(status="Leave")),
 #         )
 #     }
 
 #     trend = []
-#     cur = start
-#     while cur <= end:
-#         agg = by_day.get(cur, {"present": 0, "leave": 0})
-#         present = int(agg["present"]); leave = int(agg["leave"])
+#     cursor = start
+#     while cursor <= end:
+#         obj = daily_agg.get(cursor, {"present": 0, "leave": 0})
 #         trend.append({
-#             "date": cur.isoformat(),
-#             "present": present,
-#             "leave": leave,
+#             "date": cursor.isoformat(),
+#             "present": int(obj["present"]),
+#             "leave": int(obj["leave"]),
 #             "total": total_employees,
 #         })
-#         cur += timedelta(days=1)
+#         cursor += timedelta(days=1)
 
+#     # -----------------------------
+#     # 8. Response
+#     # -----------------------------
 #     return Response({
 #         "total_employees": total_employees,
+
 #         "present_today": present_today,
-#         "absent_today": absent_today,
+#         "absent_today":  absent_today,
+#         "leave_today":   leave_today,
 #         "leave_pending": leave_pending,
-#         "wfh": wfh,
-#         "onsite": onsite,
+#         "wfh":           wfh,
+#         "onsite":        onsite,
+
+#         "present_range": present_range,
+#         "leave_range":   leave_range,
+#         "wfh_range":     wfh_range,
+#         "onsite_range":  onsite_range,
+#         "avg_work_hours": avg_work_hours,
+#         "early_off_count": early_off_count,
+
+#         "shift_8_4":  shift_8_4,
+#         "shift_10_7": shift_10_7,
+#         "shift_12_8": shift_12_8,
+#         "shift_4_12": shift_4_12,
+
 #         "trend": trend,
-#         "range": {"from": start.isoformat(), "to": end.isoformat()},
+#         "range": {
+#             "from": start.isoformat(),
+#             "to":   end.isoformat(),
+#         },
 #     })
 # # ---------- EMPLOYEE APIs ----------
 
 # def _get_employee(user) -> Employee:
-#     return get_object_or_404(Employee, user=user)
+#     emp = get_object_or_404(Employee, user=user)
+#     _auto_topup_leave_balance(emp)  # ✅ ensure balance is fresh on each self-API
+#     return emp
 
 # @api_view(['GET'])
 # @permission_classes([IsAuthenticated])
 # def me_profile(request):
 #     emp = _get_employee(request.user)
 #     return Response(EmployeeProfileSerializer(emp).data)
+# def _parse_range_for_shift(request):
+#     """Use the same logic as _parse_range, but tiny wrapper for clarity."""
+#     f = parse_date(request.GET.get("from") or "")
+#     t = parse_date(request.GET.get("to") or "")
+#     today = timezone.localdate()
+#     f = f or today
+#     t = t or today
+#     if t < f:
+#         t = f
+#     if (t - f).days > 120:
+#         t = f + timedelta(days=120)
+#     return f, t
 
-# # @api_view(['POST'])
-# # @permission_classes([IsAuthenticated])
-# # def check_in(request):
-# #     emp = _get_employee(request.user)
 
-# #     open_att = _open_attendance(emp)
-# #     if open_att:
-# #         now = timezone.now()
-# #         age = now - open_att.check_in if open_att.check_in else timedelta(0)
+# @api_view(["GET"])
+# @permission_classes([IsAdminOrTeamLead])
+# def dashboard_shift_stats(request):
+#     """
+#     GET /api/dashboard-shift-stats/?from=YYYY-MM-DD&to=YYYY-MM-DD&team=TCP&team=SEO
 
-# #         if age > timedelta(hours=STALE_OPEN_MAX_HOURS):
-# #             # Auto-close the stale open shift, then proceed with today's check-in
-# #             _force_close_stale(open_att, max_hours=STALE_OPEN_MAX_HOURS)
-# #         else:
-# #             # Still fresh — block as before
-# #             return Response(
-# #                 {
-# #                     "detail": (
-# #                         f"You still have an open shift for {open_att.date.isoformat()} "
-# #                         "that has not been checked out. Please check out first."
-# #                     ),
-# #                     "open_shift_date": open_att.date.isoformat(),
-# #                     "open_shift_check_in": open_att.check_in.isoformat() if open_att.check_in else None,
-# #                 },
-# #                 status=409,
-# #             )
+#     Uses the END date of the range as the "today" snapshot and returns:
+#         shift_8_4, shift_10_7, shift_12_8, shift_4_12
+#     """
+#     # 1) parse range → we'll use 'end' as snapshot date
+#     start, end = _parse_range_for_shift(request)
 
-# #     mode = (request.data.get("mode") or "").strip()
-# #     if mode not in ["WFH","Onsite"]:
-# #         return Response({"detail":"mode must be 'WFH' or 'Onsite'."}, status=400)
+#     # 2) scope employees by role + ?team
+#     emp_qs = employee_scope_for(request)
 
-# #     settings = PolicySettings.get()
-# #     today = date.today()
-# #     now = timezone.now()
+#     # 3) Present with check_in on END date
+#     today_present_qs = Attendance.objects.filter(
+#         date=end,
+#         status="Present",
+#         employee__in=emp_qs,
+#         check_in__isnull=False,
+#     )
 
-# #     shift_start_dt = timezone.make_aware(datetime.combine(today, emp.shift_start))
-# #     grace_deadline = shift_start_dt + timedelta(minutes=settings.grace_minutes)
+#     # 4) Same shift windows as dashboard_stats
+#     SHIFT_WINDOWS = [
+#         ("shift_8_4",  8, 10),
+#         ("shift_10_7", 10, 12),
+#         ("shift_12_8", 12, 16),
+#         ("shift_4_12", 16, 24),
+#     ]
 
-# #     informed = PreNotice.objects.filter(
-# #         employee=emp, kind='late', for_date=today,
-# #         created_at__lte=shift_start_dt - timedelta(minutes=settings.late_notice_minutes)
-# #     ).exists()
+#     shift_counts = {key: 0 for (key, _, _) in SHIFT_WINDOWS}
 
-# #     minutes_late = 0
-# #     tag = 'normal'
-# #     if now > grace_deadline:
-# #         minutes_late = int((now - shift_start_dt).total_seconds() // 60)
-# #         tag = 'late_inf' if informed else 'late_uninf'
+#     for att in today_present_qs:
+#         ci = att.check_in
+#         if not ci:
+#             continue
+#         ci_local = timezone.localtime(ci) if timezone.is_aware(ci) else ci
+#         h = ci_local.hour
 
-# #     obj, _ = Attendance.objects.update_or_create(
-# #         employee=emp, date=today,
-# #         defaults={
-# #             "status": "Present",
-# #             "mode": mode,
-# #             "check_in": now,
-# #             "minutes_late": minutes_late,
-# #             "tag": tag,
-# #         }
-# #     )
-# #     return Response(AttendanceSerializer(obj).data)
+#         for key, start_h, end_h in SHIFT_WINDOWS:
+#             if start_h <= h < end_h:
+#                 shift_counts[key] += 1
+#                 break
+
+#     return Response({
+#         "date": end.isoformat(),
+#         "shift_8_4":  shift_counts["shift_8_4"],
+#         "shift_10_7": shift_counts["shift_10_7"],
+#         "shift_12_8": shift_counts["shift_12_8"],
+#         "shift_4_12": shift_counts["shift_4_12"],
+#     }, status=200)
+
 
 # @api_view(['POST'])
 # @permission_classes([IsAuthenticated])
@@ -581,8 +753,6 @@
 #         }
 #     )
 #     return Response(AttendanceSerializer(obj).data)
-
-
 
 
 
@@ -637,11 +807,13 @@
 # @permission_classes([IsAuthenticated])
 # def my_leaves(request):
 #     emp = _get_employee(request.user)
+
+#     # ---------- GET: list my own leaves ----------
 #     if request.method == 'GET':
 #         qs = LeaveRequest.objects.filter(employee=emp).order_by('-id')
 #         return Response(LeaveRequestSerializer(qs, many=True).data)
 
-#     # ---------- POST (create new leave request → goes to LEAD first) ----------
+#     # ---------- POST: create new leave ----------
 #     start_date = request.data.get('start_date')
 #     end_date   = request.data.get('end_date')
 #     leave_type = (request.data.get('leave_type') or 'casual').strip().lower()
@@ -665,19 +837,19 @@
 #     if leave_type not in valid_types:
 #         return Response({"detail": f"leave_type must be one of {sorted(valid_types)}."}, status=400)
 
-#     # Disallow overlaps while a previous request is still pending or already approved
+#     # Disallow overlap with existing pending/approved requests
 #     overlap = LeaveRequest.objects.filter(
 #         employee=emp,
 #         end_date__gte=s,
 #         start_date__lte=e,
-#         status__in=['pending', 'approved']
+#         status__in=['pending', 'approved'],
 #     ).exists()
 #     if overlap:
 #         return Response({"detail": "Requested range overlaps an existing request."}, status=400)
 
 #     days_needed = (e - s).days + 1
 
-#     # Only leaves that consume balance are checked at create time
+#     # Which leave types consume balance
 #     consumes_balance = leave_type in {'annual', 'casual', 'sick', 'comp'}
 #     if consumes_balance and emp.leave_balance < days_needed:
 #         return Response({"detail": "Insufficient leave balance."}, status=400)
@@ -689,26 +861,48 @@
 
 #     notice_met = True
 #     if leave_type == 'sick':
-#         # must inform ≥ notice_sick_hours before shift start on the leave's start day
 #         shift_start_naive = datetime.combine(s, emp.shift_start)
 #         try:
-#             shift_start_dt = timezone.make_aware(shift_start_naive, timezone.get_current_timezone())
+#             shift_start_dt = timezone.make_aware(
+#                 shift_start_naive, timezone.get_current_timezone()
+#             )
 #         except Exception:
-#             shift_start_dt = shift_start_naive  # fallback if USE_TZ=False
-#         notice_met = now <= (shift_start_dt - timedelta(hours=settings.notice_sick_hours))    
+#             shift_start_dt = shift_start_naive
+#         notice_met = now <= (shift_start_dt - timedelta(hours=settings.notice_sick_hours))
+    
+
 
 #     elif leave_type == 'casual':
-#         # must inform ≥ notice_casual_hours before the leave start day
 #         notice_met = (s - today) >= timedelta(hours=settings.notice_casual_hours)
+
 #     elif leave_type == 'annual':
-#         needed_days = settings.notice_annual_long_days if days_needed > 10 else settings.notice_annual_short_days
+#         needed_days = (
+#             settings.notice_annual_long_days
+#             if days_needed > 10
+#             else settings.notice_annual_short_days
+#         )
 #         notice_met = (s - today).days >= needed_days
+
 #     elif leave_type == 'comp':
 #         notice_met = (s - today).days >= settings.notice_comp_days
+
 #     elif leave_type == 'wfh':
 #         notice_met = (s - today).days >= settings.wfh_prior_days
 
-#     # Create the request → step starts at LEAD; final status remains PENDING
+#     # ---------- SPECIAL CASE: admin self-leave ----------
+#     # "Admin" in your app = staff & NOT a team lead
+#     is_admin_self = request.user.is_staff and not hasattr(request.user, "team_lead")
+
+#     if is_admin_self:
+#         # Admin leaves should just be documented/auto-approved.
+#         status_val = "approved"
+#         step_val = "done"
+#     else:
+#         # Employees: normal workflow → lead → admin
+#         status_val = "pending"
+#         step_val = "lead"
+
+#     # Create object
 #     obj = LeaveRequest.objects.create(
 #         employee=emp,
 #         start_date=s,
@@ -716,17 +910,27 @@
 #         reason=reason,
 #         leave_type=leave_type,
 #         notice_met=notice_met,
-#         status='pending',     # final status not decided yet
-#         step='lead',          # <-- goes to lead review first
+#         status=status_val,
+#         step=step_val,
 #         peer_note=peer_note,
 #     )
 
-#     # Optional: notify the appropriate reviewers.
-#     # If you have a mailer for leads, call it here (e.g., notify_leads_new_leave(obj)).
-#     try:
-#         notify_admin_new_leave(obj)  # keep if you still want admins notified at creation time
-#     except Exception:
-#         pass
+#     # ---------- Apply effects ----------
+#     if is_admin_self:
+#         # For admin: immediately apply the leave to Attendance + balances
+#         try:
+#             _apply_approved_leave(obj)
+#         except serializers.ValidationError as e:
+#             # Roll back if something goes wrong (e.g. type-specific balance)
+#             obj.delete()
+#             detail = e.detail[0] if isinstance(e.detail, list) else e.detail
+#             return Response({"detail": str(detail)}, status=400)
+#     else:
+#         # For employees: keep your existing notification flow
+#         try:
+#             notify_admin_new_leave(obj)
+#         except Exception:
+#             pass
 
 #     return Response(LeaveRequestSerializer(obj).data, status=201)
 
@@ -1150,14 +1354,15 @@
 # def my_attendance_corrections(request):
 #     emp = _get_employee(request.user)
 
+#     # ---------- GET: list my own corrections ----------
 #     if request.method == "GET":
 #         qs = AttendanceCorrection.objects.filter(employee=emp).order_by("-id")
 #         return Response(AttendanceCorrectionSerializer(qs, many=True).data)
 
-#     # POST
+#     # ---------- POST: create new correction ----------
 #     for_date = request.data.get("for_date")
-#     want_in = request.data.get("want_check_in")   # "HH:MM" or ""
-#     want_out = request.data.get("want_check_out") # "HH:MM" or ""
+#     want_in = request.data.get("want_check_in")    # "HH:MM" or ""
+#     want_out = request.data.get("want_check_out")  # "HH:MM" or ""
 #     reason = (request.data.get("reason") or "").strip()
 
 #     if not for_date:
@@ -1175,12 +1380,16 @@
 #         except ValueError:
 #             return None
 
-#     t_in  = parse_hhmm(want_in)
+#     t_in = parse_hhmm(want_in)
 #     t_out = parse_hhmm(want_out)
 
 #     if not t_in and not t_out:
-#         return Response({"detail": "Provide want_check_in and/or want_check_out in HH:MM."}, status=400)
+#         return Response(
+#             {"detail": "Provide want_check_in and/or want_check_out in HH:MM."},
+#             status=400,
+#         )
 
+#     # create as usual
 #     obj = AttendanceCorrection.objects.create(
 #         employee=emp,
 #         for_date=d,
@@ -1189,6 +1398,54 @@
 #         reason=reason,
 #         status="pending",
 #     )
+
+#     # ---------- SPECIAL CASE: admin self-correction ----------
+#     # "Admin" in your app = staff & NOT a team lead
+#     is_admin_self = request.user.is_staff and not hasattr(request.user, "team_lead")
+
+#     if is_admin_self:
+#         # 1) mark as approved
+#         obj.status = "approved"
+#         obj.save(update_fields=["status"])
+
+#         # 2) apply directly to Attendance (same logic as AttendanceCorrectionAdminUpdate)
+#         att, _ = Attendance.objects.get_or_create(
+#             employee=emp,
+#             date=obj.for_date,
+#             defaults={"status": "Present", "mode": "WFH"},
+#         )
+
+#         def to_dt(d_, t_):
+#             if not t_:
+#                 return None
+#             try:
+#                 if isinstance(t_, str):
+#                     t_ = datetime.strptime(t_, "%H:%M").time()
+#                 return timezone.make_aware(datetime.combine(d_, t_))
+#             except Exception:
+#                 return None
+
+#         if obj.want_check_in:
+#             att.check_in = to_dt(obj.for_date, obj.want_check_in)
+#         if obj.want_check_out:
+#             att.check_out = to_dt(obj.for_date, obj.want_check_out)
+
+#         # mark as corrected present day
+#         att.minutes_late = 0
+#         att.tag = "corrected"
+#         att.status = "Present"
+
+#         # infer mode from [MODE:WFH] / [MODE:Onsite] in reason
+#         mode_txt = None
+#         m = re.search(r"\[MODE\s*:\s*(WFH|Onsite)\]", (obj.reason or ""), flags=re.I)
+#         if m:
+#             mode_txt = m.group(1).title()
+#         if mode_txt in {"WFH", "Onsite"}:
+#             att.mode = mode_txt
+
+#         att.save(update_fields=["check_in", "check_out", "minutes_late", "tag", "status", "mode"])
+
+#     # -------- response (same for admin & employee) --------
 #     return Response(AttendanceCorrectionSerializer(obj).data, status=201)
 
 
@@ -1330,36 +1587,54 @@
 # def _apply_approved_leave(req: LeaveRequest):
 #     """
 #     When a leave request is approved:
-#       - mark Attendance rows as 'Leave' for each day in range
-#       - deduct the correct leave balance (type-specific if fields exist; else fallback to 'leave_balance')
-#     Raises serializers.ValidationError on insufficient balance.
+#       - auto-topup balance if needed (based on join_date)
+#       - mark Attendance rows as 'Leave' (or 'Present' with mode='WFH' for WFH)
+#       - deduct correct leave balance (skip for WFH)
 #     """
 #     emp = req.employee
-#     days = (req.end_date - req.start_date).days + 1
 
-#     with transaction.atomic():
-#         # deduct balance
-#         field = _CONSUMES_MAP.get(req.leave_type)
-#         if field and hasattr(emp, field):
-#             cur = getattr(emp, field) or 0
-#             if cur < days:
-#                 raise serializers.ValidationError(f"Insufficient {req.leave_type} leave balance.")
-#             setattr(emp, field, cur - days)
-#         else:
-#             # fallback to a single pool if you use one
-#             cur = getattr(emp, "leave_balance", 0) or 0
-#             if cur < days:
-#                 raise serializers.ValidationError("Insufficient leave balance.")
-#             emp.leave_balance = cur - days
-#         emp.save()
-
-#         # write attendance rows
+#     # WFH doesn't consume leave balance and should be marked as Present with mode=WFH
+#     if req.leave_type == 'wfh':
 #         d = req.start_date
 #         while d <= req.end_date:
 #             Attendance.objects.update_or_create(
 #                 employee=emp, date=d,
-#                 defaults={"status": "Leave", "mode": None, "tag": "on_leave"}
+#                 defaults={"status": "Present", "mode": "WFH", "tag": "normal"}
 #             )
+#             d += timedelta(days=1)
+#         return  # WFH doesn't need balance deduction
+
+#     # For other leave types, deduct balance and mark as Leave
+#     # ✅ make sure yearly top-ups are applied before checking/deducting
+#     try:
+#         _auto_topup_leave_balance(emp)
+#     except Exception as e:
+#         # If topup fails, log but continue (might be missing join_date)
+#         pass
+
+#     days = (req.end_date - req.start_date).days + 1
+
+#     with transaction.atomic():
+#         # Employee model only has 'leave_balance' field, use it for all leave types
+#         cur = getattr(emp, "leave_balance", 0) or 0
+#         if cur < days:
+#             raise serializers.ValidationError(f"Insufficient leave balance. Required: {days}, Available: {cur}")
+        
+#         emp.leave_balance = cur - days
+#         emp.save(update_fields=["leave_balance"])
+
+#         # write attendance rows...
+#         d = req.start_date
+#         while d <= req.end_date:
+#             try:
+#                 Attendance.objects.update_or_create(
+#                     employee=emp, date=d,
+#                     defaults={"status": "Leave", "mode": None, "tag": "normal"}
+#                 )
+#             except Exception as e:
+#                 # If attendance creation fails, log and continue
+#                 # This shouldn't happen but handle gracefully
+#                 pass
 #             d += timedelta(days=1)
 # @api_view(['GET'])
 # @permission_classes([IsAuthenticated])
@@ -1426,6 +1701,7 @@
 #         today = date.today()
 #         f = f or today
 #         t = t or today
+    
 #         if t < f:
 #             t = f
 #         if (t - f).days > 120:
@@ -1836,7 +2112,7 @@
 #         pre_late_map[emp_id].add(fdate)
 
 #     leads_map = _team_leads_map()
-
+    
 #     data = []
 #     for e in emp_qs:
 #         rows = by_emp_att.get(e.id, [])
@@ -1971,6 +2247,76 @@
 
 #     return att
 
+# YEARLY_LEAVE_DAYS = 60  # your yearly entitlement per completed year
+
+
+# def _auto_topup_leave_balance(emp):
+#     """
+#     Reset-style yearly leave:
+
+#     - Each leave year (based on join_date anniversary) has a fresh
+#       entitlement of YEARLY_LEAVE_DAYS (15).
+#     - Old remaining balance from previous years is *ignored*.
+#     - leave_balance = 15 - days_used_in_current_leave_year
+#     """
+#     if not emp.join_date:
+#         return  # cannot compute without join date
+
+#     today = timezone.localdate()
+#     jd = emp.join_date
+
+#     # Safety: future join_date → do nothing
+#     if jd > today:
+#         return
+
+#     # -------- 1) Find current leave-year start --------
+#     # Try this year's anniversary first
+#     try:
+#         this_year_anniv = jd.replace(year=today.year)
+#     except ValueError:
+#         # handle 29-Feb join date on non-leap years
+#         if jd.month == 2 and jd.day == 29:
+#             this_year_anniv = date(today.year, 2, 28)
+#         else:
+#             this_year_anniv = jd
+
+#     if this_year_anniv > today:
+#         # We are before the anniversary → current leave year started last year
+#         try:
+#             year_start = jd.replace(year=today.year - 1)
+#         except ValueError:
+#             if jd.month == 2 and jd.day == 29:
+#                 year_start = date(today.year - 1, 2, 28)
+#             else:
+#                 year_start = jd
+#     else:
+#         # On/after this year's anniversary
+#         year_start = this_year_anniv
+
+#     # -------- 2) Count approved leave days in THIS leave year --------
+#     consumes_types = {"sick", "casual", "annual", "comp"}
+
+#     qs = LeaveRequest.objects.filter(
+#         employee=emp,
+#         status="approved",
+#         leave_type__in=consumes_types,
+#         start_date__gte=year_start,
+#         start_date__lte=today,
+#     )
+
+#     days_used_this_year = 0
+#     for lr in qs:
+#         days_used_this_year += (lr.end_date - lr.start_date).days + 1
+
+#     # -------- 3) Compute remaining balance for this year only --------
+#     new_balance = YEARLY_LEAVE_DAYS - days_used_this_year
+#     if new_balance < 0:
+#         new_balance = 0
+
+#     # Only save if changed
+#     if emp.leave_balance != new_balance:
+#         emp.leave_balance = new_balance
+#         emp.save(update_fields=["leave_balance"])
 
 # STALE_OPEN_MAX_HOURS = 9  # or fetch from PolicySettings if you add a field there
 
@@ -2027,6 +2373,31 @@
 #     # do NOT assign att.hours_worked here if it's a computed property
 #     att.save(update_fields=["check_out", "tag"])
 #     return att
+
+# def _force_open_stale(att, *, min_hours=STALE_OPEN_MAX_HOURS):
+#     """
+#     Force-open a stale Attendance by clearing its checkout time
+#     if (check_out - check_in) > min_hours. Adds 'auto_open_stale' tag and saves.
+#     """
+
+
+#     if not att.check_in or not att.check_out:
+#         return att  # nothing to do
+
+#     duration = att.check_out - att.check_in
+#     if duration.total_seconds() >= (min_hours * 3600):
+#         att.check_out = None
+#         _append_tag(att, "auto_open_stale")
+#         att.save(update_fields=["check_out", "tag"])
+#     return att
+
+
+# class LeaveRequestAdminUpdate(UpdateAPIView):
+#     queryset = LeaveRequest.objects.all()   # ✅ REQUIRED
+#     serializer_class = LeaveRequestSerializer
+#     permission_classes = [IsAdminUser]
+#     http_method_names = ["patch", "put"]
+
 from rest_framework import status, serializers
 from rest_framework.permissions import IsAdminUser
 from rest_framework.response import Response
@@ -2319,56 +2690,69 @@ class LeaveRequestAdminList(ListAPIView):
             )
         return qs
 class LeaveRequestAdminUpdate(UpdateAPIView):
-    permission_classes = [IsAdminOrTeamLead]
+    permission_classes = [IsAdminUser]  # Only admins can approve/reject at admin step
     serializer_class = LeaveAdminDecisionSerializer
     queryset = LeaveRequest.objects.select_related("employee__team", "employee__user")
 
-    def check_object_permissions(self, request, obj):
-        # Admin: allowed everywhere
-        if request.user.is_staff and not hasattr(request.user, "team_lead"):
-            return
-        # Lead: only their teams
-        allowed = lead_allowed_team_names(request.user)
-        if obj.employee.team and obj.employee.team.name in allowed:
-            return
-        from rest_framework.exceptions import PermissionDenied
-        raise PermissionDenied("You cannot act on requests outside your teams.")
-
     def partial_update(self, request, *args, **kwargs):
-        instance = self.get_object()
-
-        if instance.step != "admin":
-            return Response({"detail":"This request is not awaiting admin review."}, status=400)
-
-        prev_status = instance.status
-        response = super().partial_update(request, *args, **kwargs)  # writes status/admin_note
-
-        instance.refresh_from_db()
-        if instance.status not in {"approved","rejected"}:
-            return Response({"detail":"status must be approved or rejected."}, status=400)
-
-        # mark final
-        instance.step = "done"
-        instance.save(update_fields=["step"])
-
-        if prev_status != "approved" and instance.status == "approved":
-            try:
-                _apply_approved_leave(instance)
-            except serializers.ValidationError as e:
-                # rollback to pending/admin if failed (e.g., insufficient balance)
-                instance.status = "pending"
-                instance.step   = "admin"
-                instance.save(update_fields=["status","step"])
-                detail = e.detail[0] if isinstance(e.detail, list) else e.detail
-                return Response({"detail": str(detail)}, status=400)
-
-        # (Optional) notify employee of final decision:
         try:
-            notify_employee_leave_decision(instance)
-        except Exception:
-            pass
+            instance = self.get_object()
 
-        return response
+            # Only allow admin to approve/reject requests at "admin" step
+            if instance.step != "admin":
+                return Response({"detail":"This request is not awaiting admin review."}, status=400)
+
+            prev_status = instance.status
+            
+            # Validate serializer data first
+            serializer = self.get_serializer(instance, data=request.data, partial=True)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=400)
+            
+            # Wrap everything in a transaction to ensure atomicity
+            try:
+                with transaction.atomic():
+                    # Save the status and admin_note via serializer
+                    serializer.save()
+                    instance.refresh_from_db()
+                    
+                    if instance.status not in {"approved","rejected"}:
+                        # Raise exception to prevent transaction commit
+                        raise serializers.ValidationError("status must be approved or rejected.")
+
+                    # mark final
+                    instance.step = "done"
+                    instance.save(update_fields=["step"])
+
+                    if prev_status != "approved" and instance.status == "approved":
+                        # This will raise an exception if it fails, causing transaction rollback
+                        _apply_approved_leave(instance)
+            except serializers.ValidationError as e:
+                # Transaction rolled back automatically, refresh to get original state
+                instance.refresh_from_db()
+                detail = e.detail[0] if isinstance(e.detail, list) else str(e.detail)
+                return Response({"detail": str(detail)}, status=400)
+            except Exception as e:
+                # Transaction rolled back automatically
+                instance.refresh_from_db()
+                return Response({"detail": f"Error applying leave: {str(e)}"}, status=500)
+
+            # Refresh after successful transaction commit
+            instance.refresh_from_db()
+            
+            # (Optional) notify employee of final decision:
+            try:
+                notify_employee_leave_decision(instance)
+            except Exception:
+                pass  # Don't fail if notification fails
+
+            # Return updated serializer data
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data, status=200)
+            
+        except Exception as e:
+            # Catch any unexpected errors
+            return Response({"detail": f"An error occurred: {str(e)}"}, status=500)
 
 class LeaveRequestUpdateAPIView(UpdateAPIView):
     queryset = LeaveRequest.objects.all()
@@ -2777,10 +3161,12 @@ def check_in(request):
             "mode": mode,
             "check_in": now,
             "minutes_late": 0,     # always 0 in flex model
-            "tag": "Present",            # keep compact 'normal' tag if you want, or set None
+            "tag": "normal",            # Use valid tag from TAG_CHOICES
         }
     )
     return Response(AttendanceSerializer(obj).data)
+
+
 
 
 
@@ -2897,8 +3283,6 @@ def my_leaves(request):
         except Exception:
             shift_start_dt = shift_start_naive
         notice_met = now <= (shift_start_dt - timedelta(hours=settings.notice_sick_hours))
-    
-
 
     elif leave_type == 'casual':
         notice_met = (s - today) >= timedelta(hours=settings.notice_casual_hours)
@@ -3347,6 +3731,7 @@ def earlyoff_update(request, pk):
 
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def get_leave_distribution(request):
     user = request.user
     employee = Employee.objects.get(user=user)
@@ -3357,19 +3742,24 @@ def get_leave_distribution(request):
     total_annual = LeaveRequest.objects.filter(employee=employee, leave_type='annual', status='approved').count()
     total_comp = LeaveRequest.objects.filter(employee=employee, leave_type='comp', status='approved').count()
 
-    # Fetch remaining leave balance for each leave type
-    remaining_sick = employee.sick_leave_balance
-    remaining_casual = employee.casual_leave_balance
-    remaining_annual = employee.annual_leave_balance
-    remaining_comp = employee.comp_leave_balance
+    # Employee model only has 'leave_balance' field, not type-specific fields
+    # Calculate remaining by subtracting used from total balance
+    total_balance = getattr(employee, "leave_balance", 0) or 0
+    total_used = total_sick + total_casual + total_annual + total_comp
+    
+    # For simplicity, show same remaining balance for all types
+    # Or you can calculate per-type if you track it differently
+    remaining = max(0, total_balance - total_used)
 
     return Response({
         'leave_types': {
-            'sick': {'used': total_sick, 'remaining': remaining_sick},
-            'casual': {'used': total_casual, 'remaining': remaining_casual},
-            'annual': {'used': total_annual, 'remaining': remaining_annual},
-            'comp': {'used': total_comp, 'remaining': remaining_comp},
-        }
+            'sick': {'used': total_sick, 'remaining': remaining},
+            'casual': {'used': total_casual, 'remaining': remaining},
+            'annual': {'used': total_annual, 'remaining': remaining},
+            'comp': {'used': total_comp, 'remaining': remaining},
+        },
+        'total_balance': total_balance,
+        'total_used': total_used,
     })
 
 
@@ -3460,7 +3850,7 @@ def my_attendance_corrections(request):
 
         # mark as corrected present day
         att.minutes_late = 0
-        att.tag = "corrected"
+        att.tag = "normal"  # Use valid tag from TAG_CHOICES
         att.status = "Present"
 
         # infer mode from [MODE:WFH] / [MODE:Onsite] in reason
@@ -3535,7 +3925,7 @@ class AttendanceCorrectionAdminUpdate(RetrieveUpdateAPIView):
 
             # minutes late
             att.minutes_late = 0
-            att.tag = "corrected"
+            att.tag = "normal"  # Use valid tag from TAG_CHOICES
             att.status = "Present"
 
             # infer mode from reason/admin_note
@@ -3729,7 +4119,6 @@ class EmployeeListAPIView(ListAPIView):
         today = date.today()
         f = f or today
         t = t or today
-    
         if t < f:
             t = f
         if (t - f).days > 120:
@@ -4278,6 +4667,7 @@ def _open_attendance(emp):
 YEARLY_LEAVE_DAYS = 60  # your yearly entitlement per completed year
 
 
+
 def _auto_topup_leave_balance(emp):
     """
     Reset-style yearly leave:
@@ -4350,41 +4740,35 @@ STALE_OPEN_MAX_HOURS = 9  # or fetch from PolicySettings if you add a field ther
 
 MAX_TAG_LEN = 20
 
+# Map to valid TAG_CHOICES from models.py: 'normal', 'late_inf', 'late_uninf', 'early_off_ok', 'short_hours'
 TAG_ALIAS = {
-    "auto_close_stale": "acs",
-    "cross_midnight":   "cm",
-    "short_hours":      "sh",
-    "early_off_ok":     "eok",
-    "late_uninf":       "lu",
-    "late_inf":         "li",
-    "normal":           "Present",
+    "auto_close_stale": "normal",  # Use valid choice
+    "cross_midnight":   "normal",  # Use valid choice
+    "short_hours":      "short_hours",  # Valid choice
+    "early_off_ok":     "early_off_ok",  # Valid choice
+    "late_uninf":       "late_uninf",  # Valid choice
+    "late_inf":         "late_inf",  # Valid choice
+    "normal":           "normal",
+    "auto_open_stale":  "normal",  # Use valid choice
 }
+
+
+
 
 def _append_tag(att, new_tag):
     """
-    Append a compact tag to att.tag without exceeding DB limit (VARCHAR(20)).
-    - Uses TAG_ALIAS when available.
-    - De-dupes.
-    - Keeps only the last few tokens if needed to fit.
+    Set tag to a valid choice from TAG_CHOICES.
+    Since models.py has choices constraint, we use single valid tags only.
     """
-    # normalize to alias
+    # normalize to valid tag via alias
     t = TAG_ALIAS.get(new_tag, new_tag)
-
-    # current tokens (already compacted if we’ve used this once)
-    cur = (att.tag or "").strip()
-    tokens = [tok for tok in cur.split("|") if tok] if cur else []
-
-    # de-dup
-    if t not in tokens:
-        tokens.append(t)
-
-    # ensure fits MAX_TAG_LEN by dropping oldest tokens
-    s = "|".join(tokens)
-    while len(s) > MAX_TAG_LEN and tokens:
-        tokens.pop(0)          # drop oldest
-        s = "|".join(tokens)
-
-    att.tag = s  # <= 20 chars
+    
+    # Ensure it's a valid choice (fallback to 'normal' if not)
+    valid_choices = ['normal', 'late_inf', 'late_uninf', 'early_off_ok', 'short_hours']
+    if t not in valid_choices:
+        t = 'normal'
+    
+    att.tag = t
 
 
 def _force_close_stale(att, *, max_hours=STALE_OPEN_MAX_HOURS):
@@ -4407,8 +4791,6 @@ def _force_open_stale(att, *, min_hours=STALE_OPEN_MAX_HOURS):
     Force-open a stale Attendance by clearing its checkout time
     if (check_out - check_in) > min_hours. Adds 'auto_open_stale' tag and saves.
     """
-
-
     if not att.check_in or not att.check_out:
         return att  # nothing to do
 
@@ -4420,10 +4802,4 @@ def _force_open_stale(att, *, min_hours=STALE_OPEN_MAX_HOURS):
     return att
 
 
-class LeaveRequestAdminUpdate(UpdateAPIView):
-    queryset = LeaveRequest.objects.all()   # ✅ REQUIRED
-    serializer_class = LeaveRequestSerializer
-    permission_classes = [IsAdminUser]
-    http_method_names = ["patch", "put"]
-
-
+    
